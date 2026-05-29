@@ -95,8 +95,38 @@ you want it pulled forward.
   out-of-scope/denied calls. FastMCP has **no** native glob filtering (only a
   `tool_names` rename map on `mount`), so allow/deny is enforced in `HookMiddleware`.
 
-## Next (Milestone 3)
+## State (Milestone 3B — per-server allow/deny enforcement: DONE)
 
-Groups + tool allow/deny + per-group membership (Option B endpoints). See decision
-above. Then M4 (search/describe meta-tools + catalog cache), M5 (reference hooks,
-docs, packaging).
+- **New module `src/mcp_gateway/access.py`:** `AccessPolicy` + `current_group: ContextVar[str|None]`.
+  - `rebuild(servers, groups)`: pre-compiles `_ServerRules` (allow/deny list) per namespace
+    and `_GroupRules` (member namespaces + allow/deny) per group. Namespace list sorted
+    longest-first for correct longest-prefix splitting.
+  - `split_namespace(tool_name)`: longest-prefix match against known namespaces with
+    separator `_<bare>`. Returns `(None, name)` for non-namespaced tools (always allowed).
+  - `_rule_allows(bare, allow, deny)`: deny wins; empty allow = allow all.
+  - `allows(tool_name, group=None)`: server rules first, then group gate (membership +
+    group allow/deny on top). Unknown group → False.
+  - `filter_tools(tools, group=None)`: list comprehension over `allows`.
+  - Group fields are fully implemented now; M3c only adds the routing shim that sets
+    `current_group`.
+- **`HookMiddleware` (`hooks.py`):** gains `policy: AccessPolicy | None = None`.
+  - `on_list_tools`: policy filter BEFORE user hooks (preserves original namespaced names
+    for correct splitting; user hooks may rename after).
+  - `on_call_tool`: policy check BEFORE pre_tool_call hooks; raises `ToolError("Tool X is not permitted.")` on deny.
+- **`GatewayBuilder` (`builder.py`):** gains `policy: AccessPolicy | None = None`;
+  `reload()` fetches both `list_servers()` + `list_groups()` and calls `policy.rebuild()`
+  on the FULL server list (all servers, not just enabled) before remounting.
+- **`app.py`:** `create_gateway` constructs `AccessPolicy()`, passes it to both
+  `HookMiddleware` and `GatewayBuilder`.
+- **Tests:** 89 total (27 new). `test_access.py` (18), `test_hooks.py` +7, `test_builder.py` +6.
+  mypy --strict clean. ruff clean.
+- **E2E:** `.claude/scripts/m3b_e2e.py` — upstream with `add/sub/delete_all`, registered
+  with `deny=["delete_*"]`. Confirmed: `math_delete_all` absent from `list_tools`, and
+  calling it raises `ToolError: Tool 'math_delete_all' is not permitted.`.
+
+## Next (Milestone 3C)
+
+Group-scoped endpoints (Option B): routing shim that mounts `/mcp/g/{group}` and sets
+`current_group` ContextVar per request. `AccessPolicy` is already group-aware — M3c
+only adds the routing layer. Then M4 (search/describe meta-tools + catalog cache),
+M5 (reference hooks, docs, packaging).

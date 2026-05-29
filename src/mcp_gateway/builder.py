@@ -20,6 +20,7 @@ from fastmcp import FastMCP
 from fastmcp.server.providers.base import Provider
 from fastmcp.server.providers.proxy import FastMCPProxy
 
+from mcp_gateway.access import AccessPolicy
 from mcp_gateway.connect import build_client_factory
 from mcp_gateway.hooks import Hooks
 from mcp_gateway.store.base import Store
@@ -30,19 +31,31 @@ logger = logging.getLogger("mcp_gateway.builder")
 class GatewayBuilder:
     """Builds and rebuilds proxy mounts on a parent FastMCP server."""
 
-    def __init__(self, mcp: FastMCP, store: Store, hooks: Hooks) -> None:
+    def __init__(
+        self, mcp: FastMCP, store: Store, hooks: Hooks, policy: AccessPolicy | None = None
+    ) -> None:
         self.mcp = mcp
         self.store = store
         self.hooks = hooks
+        self.policy = policy
         self._baseline_providers: list[Provider] = list(mcp.providers)
 
     async def reload(self) -> None:
         """Rebuild all proxy mounts from the current registry.
 
         Resets to the baseline providers, then mounts a proxy per enabled server
-        under its name as a namespace.
+        under its name as a namespace.  Also rebuilds the access policy from the
+        full server + group lists so namespace splitting and allow/deny rules are
+        current after every reload.
         """
         servers = await self.store.list_servers()
+        groups = await self.store.list_groups()
+
+        if self.policy is not None:
+            # Rebuild from ALL servers (not just enabled) so every namespace is
+            # known for split_namespace, even if the server is currently disabled.
+            self.policy.rebuild(servers, groups)
+
         self.mcp.providers[:] = self._baseline_providers
 
         mounted = 0

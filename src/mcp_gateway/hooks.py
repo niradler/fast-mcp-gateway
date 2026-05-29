@@ -32,6 +32,7 @@ from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.tools.base import Tool
 from pydantic import BaseModel
 
+from mcp_gateway.access import AccessPolicy, current_group
 from mcp_gateway.models import ServerRecord
 
 
@@ -96,16 +97,22 @@ class Hooks:
 class HookMiddleware(Middleware):
     """Dispatches list/tool hooks around upstream calls."""
 
-    def __init__(self, hooks: Hooks) -> None:
+    def __init__(self, hooks: Hooks, policy: AccessPolicy | None = None) -> None:
         self.hooks = hooks
+        self.policy = policy
 
     async def on_list_tools(
         self, context: MiddlewareContext[Any], call_next: Callable[..., Any]
     ) -> Any:
-        """Obtain the tool catalog from the upstream chain, then thread it through
-        each ``pre_list_tools`` hook in registration order so hooks can drop or
-        rename tools before the catalog is returned to the caller."""
+        """Obtain the tool catalog, apply the access policy filter, then thread
+        through each ``pre_list_tools`` hook in registration order.
+
+        Policy filtering happens before user hooks so namespace splitting works
+        correctly on the original namespaced names (user hooks may rename tools).
+        """
         tools: Sequence[Tool] = await call_next(context)
+        if self.policy is not None:
+            tools = self.policy.filter_tools(tools, group=current_group.get())
         for hook in self.hooks.pre_list_tools:
             tools = await hook(context, tools)
         return tools
@@ -114,6 +121,8 @@ class HookMiddleware(Middleware):
         self, context: MiddlewareContext[Any], call_next: Callable[..., Any]
     ) -> Any:
         message = context.message
+        if self.policy is not None and not self.policy.allows(message.name, current_group.get()):
+            raise ToolError(f"Tool {message.name!r} is not permitted.")
         for hook in self.hooks.pre_tool_call:
             result = await hook(context)
             if result is None:

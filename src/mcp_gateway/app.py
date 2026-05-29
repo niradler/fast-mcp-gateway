@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, FastAPI
 from fastmcp import FastMCP
 
+from mcp_gateway.access import AccessPolicy
 from mcp_gateway.api.groups import build_groups_router
 from mcp_gateway.api.servers import build_servers_router
 from mcp_gateway.builder import GatewayBuilder
@@ -82,12 +83,13 @@ def create_gateway(
     with the hook middleware and meta-tools attached, alongside the admin CRUD router.
     """
     hooks = hooks or Hooks()
+    policy = AccessPolicy()
 
     mcp: FastMCP = FastMCP(name)
-    mcp.add_middleware(HookMiddleware(hooks))
+    mcp.add_middleware(HookMiddleware(hooks, policy))
     register_search_tools(mcp)
 
-    builder = GatewayBuilder(mcp=mcp, store=store, hooks=hooks)
+    builder = GatewayBuilder(mcp=mcp, store=store, hooks=hooks, policy=policy)
     admin_router = _build_admin_router(store, builder, hooks)
     mcp_app = mcp.http_app(path=mcp_path)
 

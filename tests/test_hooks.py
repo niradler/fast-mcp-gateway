@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from fastmcp.exceptions import ToolError
 
+from mcp_gateway.access import AccessPolicy
 from mcp_gateway.hooks import (
     ConfirmationContext,
     HookMiddleware,
@@ -17,6 +18,22 @@ from mcp_gateway.hooks import (
     ToolCallResult,
     ToolDecision,
 )
+from mcp_gateway.models import ServerRecord
+
+
+def make_server_record(
+    name: str,
+    *,
+    allow: list[str] | None = None,
+    deny: list[str] | None = None,
+) -> ServerRecord:
+    return ServerRecord(
+        id=name,
+        name=name,
+        url=f"https://{name}.example.com/mcp",
+        allow=allow or [],
+        deny=deny or [],
+    )
 
 
 def make_context(name: str = "deploy", arguments: dict[str, Any] | None = None) -> Any:
@@ -140,3 +157,81 @@ async def test_on_list_tools_no_hooks() -> None:
     result = await middleware.on_list_tools(make_context(), list_tools_call_next)
 
     assert [t.name for t in result] == ["math_add", "math_sub", "math_mul"]
+
+
+# ---------------------------------------------------------------------------
+# Policy enforcement in on_list_tools / on_call_tool
+# ---------------------------------------------------------------------------
+
+
+async def test_policy_filters_list_tools() -> None:
+    """Policy filter runs before user hooks: a denied namespaced tool is dropped."""
+    policy = AccessPolicy()
+    policy.rebuild([make_server_record("math", allow=["add", "sub"])], [])
+
+    # call_next returns add + mul; mul is denied by the allow list
+    async def call_next_with_mul(context: Any) -> list[Any]:
+        return [make_tool("math_add"), make_tool("math_mul")]
+
+    middleware = HookMiddleware(Hooks(), policy=policy)
+    result = await middleware.on_list_tools(make_context(), call_next_with_mul)
+
+    names = [t.name for t in result]
+    assert "math_add" in names
+    assert "math_mul" not in names
+
+
+async def test_policy_filter_then_user_hook_run_in_order() -> None:
+    """Policy filter runs first, user pre_list_tools hooks run after on what remains."""
+    policy = AccessPolicy()
+    policy.rebuild([make_server_record("math", allow=["add"])], [])
+
+    seen: list[str] = []
+
+    async def recording_hook(context: Any, tools: Any) -> Any:
+        seen.extend(t.name for t in tools)
+        return tools
+
+    async def call_next_multi(context: Any) -> list[Any]:
+        return [make_tool("math_add"), make_tool("math_mul")]
+
+    middleware = HookMiddleware(Hooks(pre_list_tools=[recording_hook]), policy=policy)
+    await middleware.on_list_tools(make_context(), call_next_multi)
+
+    # User hook only sees what the policy left — math_mul was already dropped
+    assert "math_add" in seen
+    assert "math_mul" not in seen
+
+
+async def test_no_policy_list_tools_unchanged() -> None:
+    """Without a policy, on_list_tools returns the full catalog."""
+    middleware = HookMiddleware(Hooks())
+    result = await middleware.on_list_tools(make_context(), list_tools_call_next)
+    assert len(result) == 3
+
+
+async def test_policy_blocks_denied_call_tool() -> None:
+    """on_call_tool raises ToolError for a tool the policy disallows."""
+    policy = AccessPolicy()
+    policy.rebuild([make_server_record("math", deny=["mul"])], [])
+
+    middleware = HookMiddleware(Hooks(), policy=policy)
+    with pytest.raises(ToolError):
+        await middleware.on_call_tool(make_context(name="math_mul"), call_next)
+
+
+async def test_policy_allows_permitted_call_tool() -> None:
+    """on_call_tool proceeds normally for an allowed tool."""
+    policy = AccessPolicy()
+    policy.rebuild([make_server_record("math", deny=["mul"])], [])
+
+    middleware = HookMiddleware(Hooks(), policy=policy)
+    result = await middleware.on_call_tool(make_context(name="math_add"), call_next)
+    assert result == "called"
+
+
+async def test_no_policy_call_tool_unchanged() -> None:
+    """Without a policy, on_call_tool passes through every tool."""
+    middleware = HookMiddleware(Hooks())
+    result = await middleware.on_call_tool(make_context(name="math_mul"), call_next)
+    assert result == "called"
