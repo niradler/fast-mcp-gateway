@@ -129,3 +129,34 @@ async def test_create_gateway_applies_plugin_contributions() -> None:
     with TestClient(app):
         pass
     assert events == ["setup", "teardown"]
+
+
+@pytest.mark.asyncio
+async def test_plugin_pre_hook_enforced_through_middleware() -> None:
+    from types import SimpleNamespace
+
+    from fastmcp.exceptions import ToolError
+
+    from mcp_gateway.hooks import (
+        HookMiddleware,
+        ToolCallResult,
+        ToolDecision,
+        merge_hooks,
+    )
+
+    async def deny_secret(ctx: SimpleNamespace) -> ToolCallResult | None:
+        if ctx.message.name == "secret":
+            return ToolCallResult(decision=ToolDecision.DENY, reason="nope")
+        return None
+
+    mw = HookMiddleware(merge_hooks(Hooks(pre_tool_call=[deny_secret])))
+
+    async def call_next(_ctx: SimpleNamespace) -> str:
+        return "ok"
+
+    ok_ctx = SimpleNamespace(message=SimpleNamespace(name="safe", arguments={}))
+    assert await mw.on_call_tool(ok_ctx, call_next) == "ok"
+
+    bad_ctx = SimpleNamespace(message=SimpleNamespace(name="secret", arguments={}))
+    with pytest.raises(ToolError):
+        await mw.on_call_tool(bad_ctx, call_next)
