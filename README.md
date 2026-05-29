@@ -138,8 +138,8 @@ targets.
 | Phase | Deliverable |
 |---|---|
 | 0 | Package skeleton, `Store` protocol + `SqliteStore`, `create_gateway()` mounting an empty FastMCP on FastAPI — **scaffolded** |
-| 1 | Server CRUD + builder (registry → proxy + namespace mount) + `reload()` + `pre_mcp_connect` |
-| 2 | `HookMiddleware`: `pre_tool_call` / `post_tool_call` / `pre_list_tools` |
+| 1 | Server CRUD + builder (registry → proxy + namespace mount) + `reload()` + `pre_mcp_connect` — **done** |
+| 2 | `HookMiddleware`: `pre_tool_call` / `post_tool_call` / `pre_list_tools` — **done** |
 | 3 | Groups + tool allow/deny + per-group membership |
 | 4 | `search_tools` / `describe_tool` meta-tools + catalog cache |
 | 5 | Reference hooks (audit, allow/deny, confirmation), docs, packaging |

@@ -37,8 +37,9 @@ def test_admin_routes_are_registered() -> None:
     assert "/admin/reload" in paths
 
 
-def test_admin_endpoint_returns_501_until_implemented() -> None:
+def test_list_servers_starts_empty() -> None:
     app, _ = make_app()
     with TestClient(app) as client:
         response = client.get("/admin/servers")
-    assert response.status_code == 501
+    assert response.status_code == 200
+    assert response.json() == []

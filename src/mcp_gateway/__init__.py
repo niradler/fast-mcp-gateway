@@ -18,6 +18,7 @@ from mcp_gateway.hooks import (
 )
 from mcp_gateway.models import (
     GroupCreate,
+    GroupPatch,
     GroupRecord,
     ServerCreate,
     ServerPatch,
@@ -34,6 +35,7 @@ __all__ = [
     "ConnectSettings",
     "Gateway",
     "GroupCreate",
+    "GroupPatch",
     "GroupRecord",
     "Hooks",
     "ServerCreate",

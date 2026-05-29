@@ -8,6 +8,8 @@ caller mounts onto their own FastAPI app.
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -40,11 +42,16 @@ class Gateway:
     mcp_app: StarletteWithLifespan
     admin_router: APIRouter
     builder: GatewayBuilder
+    _lifespan: Lifespan[Starlette]
 
     @property
     def lifespan(self) -> Lifespan[Starlette]:
-        """The lifespan to pass to ``FastAPI(lifespan=...)`` on the host app."""
-        return self.mcp_app.lifespan
+        """The lifespan to pass to ``FastAPI(lifespan=...)`` on the host app.
+
+        It initializes the store, builds the proxy mounts from the registry, and
+        then runs the underlying MCP app's lifespan (session management).
+        """
+        return self._lifespan
 
     async def reload(self) -> None:
         """Rebuild proxy mounts from the current registry."""
@@ -81,16 +88,29 @@ def create_gateway(
     register_search_tools(mcp)
 
     builder = GatewayBuilder(mcp=mcp, store=store, hooks=hooks)
-    admin_router = _build_admin_router(store, builder)
+    admin_router = _build_admin_router(store, builder, hooks)
     mcp_app = mcp.http_app(path=mcp_path)
 
-    return Gateway(mcp=mcp, mcp_app=mcp_app, admin_router=admin_router, builder=builder)
+    @contextlib.asynccontextmanager
+    async def lifespan(app: Starlette) -> AsyncIterator[None]:
+        await store.initialize()
+        await builder.reload()
+        async with mcp_app.lifespan(app):
+            yield
+
+    return Gateway(
+        mcp=mcp,
+        mcp_app=mcp_app,
+        admin_router=admin_router,
+        builder=builder,
+        _lifespan=lifespan,
+    )
 
 
-def _build_admin_router(store: Store, builder: GatewayBuilder) -> APIRouter:
+def _build_admin_router(store: Store, builder: GatewayBuilder, hooks: Hooks) -> APIRouter:
     """Combine the server and group routers and add the reload endpoint."""
     router = APIRouter()
-    router.include_router(build_servers_router(store))
+    router.include_router(build_servers_router(store, hooks))
     router.include_router(build_groups_router(store))
 
     @router.post("/reload", tags=["admin"])

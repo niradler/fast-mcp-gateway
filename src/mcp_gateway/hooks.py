@@ -13,18 +13,23 @@ A ``pre_tool_call`` hook returning ``REQUIRE_CONFIRMATION`` triggers the
 ``confirmation`` hooks (human-in-the-loop); if any of them rejects — or none is
 registered — the call is denied (fail-safe).
 
+``pre_list_tools`` hooks receive the current tool catalog and return a (possibly
+filtered or transformed) catalog, mirroring ``post_tool_call``'s
+``(context, result) -> result`` shape.
+
 Hooks chain in registration order.
 """
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware, MiddlewareContext
+from fastmcp.tools.base import Tool
 from pydantic import BaseModel
 
 from mcp_gateway.models import ServerRecord
@@ -69,7 +74,8 @@ class ConfirmationContext(BaseModel):
 
 # Hook function signatures. All hooks are async.
 ConnectHook = Callable[[ConnectContext], Awaitable[ConnectSettings | None]]
-ListToolsHook = Callable[[MiddlewareContext[Any]], Awaitable[None]]
+# Receives the current tool catalog and returns the (possibly filtered/transformed) catalog.
+ListToolsHook = Callable[[MiddlewareContext[Any], Sequence[Tool]], Awaitable[Sequence[Tool]]]
 PreToolCallHook = Callable[[MiddlewareContext[Any]], Awaitable[ToolCallResult | None]]
 # Returns True to approve the call, False to reject it.
 ConfirmationHook = Callable[[ConfirmationContext], Awaitable[bool]]
@@ -96,8 +102,13 @@ class HookMiddleware(Middleware):
     async def on_list_tools(
         self, context: MiddlewareContext[Any], call_next: Callable[..., Any]
     ) -> Any:
-        # TODO(Milestone 2): run pre_list_tools to filter/transform the catalog.
-        return await call_next(context)
+        """Obtain the tool catalog from the upstream chain, then thread it through
+        each ``pre_list_tools`` hook in registration order so hooks can drop or
+        rename tools before the catalog is returned to the caller."""
+        tools: Sequence[Tool] = await call_next(context)
+        for hook in self.hooks.pre_list_tools:
+            tools = await hook(context, tools)
+        return tools
 
     async def on_call_tool(
         self, context: MiddlewareContext[Any], call_next: Callable[..., Any]

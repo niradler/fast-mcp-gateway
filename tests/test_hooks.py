@@ -80,3 +80,63 @@ async def test_continue_passes_through_and_post_hook_transforms() -> None:
     result = await middleware.on_call_tool(make_context(), call_next)
 
     assert result == "called+post"
+
+
+# ---------------------------------------------------------------------------
+# on_list_tools tests
+# ---------------------------------------------------------------------------
+
+
+def make_tool(name: str) -> Any:
+    """Lightweight stand-in for a Tool — hooks only touch `.name`."""
+    return SimpleNamespace(name=name)
+
+
+async def list_tools_call_next(context: Any) -> list[Any]:
+    return [make_tool("math_add"), make_tool("math_sub"), make_tool("math_mul")]
+
+
+async def test_pre_list_tools_drops_a_tool() -> None:
+    async def drop_sub(context: Any, tools: Any) -> Any:
+        return [t for t in tools if t.name != "math_sub"]
+
+    middleware = HookMiddleware(Hooks(pre_list_tools=[drop_sub]))
+    result = await middleware.on_list_tools(make_context(), list_tools_call_next)
+
+    names = [t.name for t in result]
+    assert "math_sub" not in names
+    assert "math_add" in names
+    assert "math_mul" in names
+
+
+async def test_pre_list_tools_pass_through() -> None:
+    async def identity(context: Any, tools: Any) -> Any:
+        return tools
+
+    middleware = HookMiddleware(Hooks(pre_list_tools=[identity]))
+    result = await middleware.on_list_tools(make_context(), list_tools_call_next)
+
+    assert [t.name for t in result] == ["math_add", "math_sub", "math_mul"]
+
+
+async def test_pre_list_tools_chained() -> None:
+    """First hook drops math_add; second renames math_sub to calc_subtract."""
+
+    async def drop_add(context: Any, tools: Any) -> Any:
+        return [t for t in tools if t.name != "math_add"]
+
+    async def rename_sub(context: Any, tools: Any) -> Any:
+        return [SimpleNamespace(name="calc_subtract") if t.name == "math_sub" else t for t in tools]
+
+    middleware = HookMiddleware(Hooks(pre_list_tools=[drop_add, rename_sub]))
+    result = await middleware.on_list_tools(make_context(), list_tools_call_next)
+
+    names = [t.name for t in result]
+    assert names == ["calc_subtract", "math_mul"]
+
+
+async def test_on_list_tools_no_hooks() -> None:
+    middleware = HookMiddleware(Hooks())
+    result = await middleware.on_list_tools(make_context(), list_tools_call_next)
+
+    assert [t.name for t in result] == ["math_add", "math_sub", "math_mul"]

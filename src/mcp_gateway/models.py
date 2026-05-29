@@ -78,6 +78,15 @@ class GroupCreate(GroupBase):
     """Payload to create a group."""
 
 
+class GroupPatch(BaseModel):
+    """Partial update for a group; unset fields are left unchanged."""
+
+    name: str | None = None
+    member_server_ids: list[str] | None = None
+    allow: list[str] | None = None
+    deny: list[str] | None = None
+
+
 class GroupRecord(GroupBase):
     """A persisted group, as returned by the store and admin API."""
 

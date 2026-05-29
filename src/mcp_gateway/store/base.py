@@ -11,6 +11,7 @@ from typing import Protocol, runtime_checkable
 
 from mcp_gateway.models import (
     GroupCreate,
+    GroupPatch,
     GroupRecord,
     ServerCreate,
     ServerPatch,
@@ -25,6 +26,11 @@ class Store(Protocol):
     All methods are async so the gateway can run against networked backends
     without blocking the event loop.
     """
+
+    async def initialize(self) -> None:
+        """Prepare the backend (open connections, create schema). Called once at
+        gateway startup before any other method."""
+        ...
 
     async def list_servers(self) -> list[ServerRecord]: ...
 
@@ -42,6 +48,6 @@ class Store(Protocol):
 
     async def create_group(self, data: GroupCreate) -> GroupRecord: ...
 
-    async def upsert_group(self, group: GroupRecord) -> GroupRecord: ...
+    async def update_group(self, group_id: str, patch: GroupPatch) -> GroupRecord: ...
 
     async def delete_group(self, group_id: str) -> None: ...
