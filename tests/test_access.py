@@ -86,6 +86,29 @@ def test_split_namespace_exact_match_no_underscore() -> None:
     assert ns is None
 
 
+def test_split_namespace_double_underscore_in_bare_name() -> None:
+    """A bare tool name containing '__' must split only at the namespace boundary.
+
+    FastMCP joins namespace + tool with a single underscore, but the bare tool
+    name itself may contain underscores or double underscores. Longest-prefix
+    matching against known namespaces splits at the first separator that
+    completes a registered namespace, leaving the rest (including any '__')
+    intact — it does NOT split on an arbitrary '__'.
+    """
+    policy = AccessPolicy()
+    policy.rebuild([make_server("math")], [])
+    assert policy.split_namespace("math_get__user") == ("math", "get__user")
+    assert policy.split_namespace("math__add") == ("math", "_add")
+
+
+def test_double_underscore_bare_name_allow_deny() -> None:
+    """Allow/deny globs apply to the bare name even when it contains '__'."""
+    policy = AccessPolicy()
+    policy.rebuild([make_server("math", deny=["get__*"])], [])
+    assert policy.allows("math_get__user") is False
+    assert policy.allows("math_add") is True
+
+
 # ---------------------------------------------------------------------------
 # allows — server-level rules
 # ---------------------------------------------------------------------------

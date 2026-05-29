@@ -124,9 +124,40 @@ you want it pulled forward.
   with `deny=["delete_*"]`. Confirmed: `math_delete_all` absent from `list_tools`, and
   calling it raises `ToolError: Tool 'math_delete_all' is not permitted.`.
 
-## Next (Milestone 3C)
+## State (Milestone 3C — group-scoped endpoints, Option B: DONE)
 
-Group-scoped endpoints (Option B): routing shim that mounts `/mcp/g/{group}` and sets
-`current_group` ContextVar per request. `AccessPolicy` is already group-aware — M3c
-only adds the routing layer. Then M4 (search/describe meta-tools + catalog cache),
-M5 (reference hooks, docs, packaging).
+- **New module `src/mcp_gateway/routing.py`:** `GroupDispatch` ASGI shim + `split_group_path`.
+  - Mounted at `{mcp_path}/g` (before the full `{mcp_path}` mount so the longer prefix
+    wins) in `Gateway.install`. Serves the SAME shared `mcp_app` — no per-group proxy
+    duplication.
+  - **Key correction:** modern Starlette `Mount` does NOT strip the matched prefix from
+    `scope["path"]`; it records the prefix in `scope["root_path"]` and the downstream
+    router resolves `route_path = path - root_path`. The shim therefore *folds the
+    `{group}` segment into `root_path`* (rather than rewriting `path`), so the shared MCP
+    app's router resolves to the transport root. It sets `current_group` for the request
+    and resets it in `finally`. (First attempt rewrote `path` → 404; fixed.)
+  - Lifespan: the real lifespan stays owned by the host app via `gateway.lifespan`;
+    Starlette `Mount` never forwards `lifespan` scopes to mounts, but the shim answers
+    the lifespan protocol as a defensive no-op anyway.
+- **`app.py`:** `Gateway` gains `_transport_path`; `install()` gains `group_segment="g"`
+  and mounts `GroupDispatch(mcp_app, transport_path)` ahead of the full mount.
+- **Tests:** `test_routing.py` (shim path-folding incl. no-trailing-slash, ContextVar
+  set/reset, no scope mutation, lifespan no-op) + `test_access.py` `__`-in-bare-name
+  split/allow-deny tests (per Nir's note: FastMCP joins ns+tool with a single `_`, and
+  longest-prefix matching splits at the namespace boundary — never on an arbitrary `__`).
+- **E2E:** `.claude/scripts/m3c_e2e.py` — LIVE uvicorn (2 upstreams `math`/`text` + group
+  `analytics` member=math, group deny `delete_*`). Proves: full `/mcp` shows all 5 tools;
+  `/mcp/g/analytics` shows only `math_add`/`math_sub` (text out of scope, `math_delete_all`
+  group-denied); unknown group → empty; denied/out-of-scope calls error; full `/mcp` still
+  calls `math_add`→5 (ContextVar reset, no scope leak).
+
+**Milestone 3 is complete** (3a server allow/deny, 3b enforcement, 3c group endpoints).
+
+## Next (Milestone 4)
+
+`search_tools` / `describe_tool` meta-tools + a reload-invalidated catalog cache. Then
+M5 (reference hooks, docs, packaging dry-run — do NOT publish).
+
+NOTE: a parallel agent is building the **plugins** feature (`src/mcp_gateway/plugins.py`,
+`tests/test_plugins.py`, `merge_hooks` in `hooks.py`, plugin wiring in `create_gateway`).
+M3C coexists cleanly with it; the combined gate is green (107 pass).
