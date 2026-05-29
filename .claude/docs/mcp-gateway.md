@@ -20,25 +20,23 @@ provided by Nir (philosophy, architecture, reuse-vs-build, hooks, Store, milesto
 - Tests: smoke (imports, gateway assembles, admin routes registered, 501 response).
 - Docs: `README.md`, `CLAUDE.md`, `examples/basic_app.py`.
 
-## Key decisions
+## Key decisions (all confirmed by Nir)
 
-- **FastMCP v3.3.1, not v2** (overrides plan decision #10). v3 API names recorded in
-  CLAUDE.md (`create_proxy`, `mount(..., namespace=)`, middleware paths). Revert =
-  pin `fastmcp>=2,<3`.
-- **requires-python >=3.11** (plan/uv-init default was 3.13) for PyPI reach. Dev venv
-  still 3.13 via `.python-version`.
-- **MIT license**, author Nir Adler. GitHub URLs guessed as
-  `niradler/fast-mcp-gateway` — confirm/adjust.
+- **FastMCP v3.3.x, latest** (overrides plan decision #10). v3 API names recorded in
+  CLAUDE.md (`create_proxy`, `mount(..., namespace=)`, middleware paths).
+- **requires-python >=3.11** for PyPI reach. Dev venv 3.13 via `.python-version`.
+- **MIT license**; project is niradler's personal (not Komodor). pyproject author is
+  name-only (no personal email yet — can add later).
 - Type checker: **mypy --strict** as the gate (not `ty` — still pre-1.0, risky on
   pydantic). ruff covers the fast dev loop.
+- **Repo:** https://github.com/niradler/fast-mcp-gateway — PUBLIC, default branch
+  `main`. Pushed: scaffold + .gitattributes (LF normalization).
 
-## Open issues / confirm with Nir
+## Resolved
 
-- v2 vs v3 — proceeding on v3; confirm OK.
-- GitHub repo URL in pyproject (`niradler/...`) — placeholder.
-- `main.py` (uv-init hello-world stub) at repo root is unused — needs removal (delete
-  is a destructive op; give Nir the command).
-- Windows: `make` not native — flagged in README/CLAUDE.
+- v2 vs v3 → v3 (latest). `main.py` stub removed. Windows `make` present (4.4.1).
+- VSCode interpreter points at C:\Python312, not `.venv` — Nir to select
+  `.venv\Scripts\python.exe` to clear the fastapi/fastmcp "not installed" hints.
 
 ## Next (Milestone 1)
 
