@@ -94,6 +94,23 @@ class Hooks:
     post_tool_call: list[PostToolCallHook] = field(default_factory=list)
 
 
+def merge_hooks(*groups: Hooks) -> Hooks:
+    """Combine several :class:`Hooks` into one, concatenating each seam in order.
+
+    Base hooks come first, then each plugin's hooks in registration order, so
+    earlier-registered hooks run first within every seam. Input ``Hooks`` are not
+    mutated.
+    """
+    merged = Hooks()
+    for group in groups:
+        merged.pre_mcp_connect.extend(group.pre_mcp_connect)
+        merged.pre_list_tools.extend(group.pre_list_tools)
+        merged.pre_tool_call.extend(group.pre_tool_call)
+        merged.confirmation.extend(group.confirmation)
+        merged.post_tool_call.extend(group.post_tool_call)
+    return merged
+
+
 class HookMiddleware(Middleware):
     """Dispatches list/tool hooks around upstream calls."""
 

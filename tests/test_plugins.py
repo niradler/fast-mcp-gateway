@@ -33,3 +33,28 @@ def test_minimal_plugin_satisfies_protocol() -> None:
     assert isinstance(plugin, Plugin)
     assert plugin.name == "noop"
     assert isinstance(plugin.contributions(), PluginContributions)
+
+
+def test_merge_hooks_concatenates_each_seam_in_order() -> None:
+    from mcp_gateway.hooks import merge_hooks
+
+    async def a(ctx):
+        return None
+
+    async def b(ctx):
+        return None
+
+    base = Hooks(pre_tool_call=[a])
+    extra = Hooks(pre_tool_call=[b])
+    merged = merge_hooks(base, extra)
+
+    assert merged.pre_tool_call == [a, b]
+    # inputs untouched
+    assert base.pre_tool_call == [a]
+    assert extra.pre_tool_call == [b]
+
+
+def test_merge_hooks_empty_returns_empty() -> None:
+    from mcp_gateway.hooks import merge_hooks
+
+    assert merge_hooks() == Hooks()
