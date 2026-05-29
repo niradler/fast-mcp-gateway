@@ -85,11 +85,14 @@ Each binds to the correct layer:
 | `pre_mcp_connect` | proxy client factory | before opening an upstream session |
 | `pre_list_tools` | FastMCP middleware `on_list_tools` | on catalog requests |
 | `pre_tool_call` | FastMCP middleware `on_call_tool` (pre) | before forwarding a call |
+| `confirmation` | `on_call_tool` (when `REQUIRE_CONFIRMATION`) | human-in-the-loop approval |
 | `post_tool_call` | FastMCP middleware `on_call_tool` (post) | after the upstream result |
 
 Hooks chain in order. A `pre_tool_call` hook may continue, mutate args, deny, or
-require confirmation. HIL, policy, guardrails, audit, and cost limits are all just
-hooks — nothing special in the core.
+return `REQUIRE_CONFIRMATION` — which triggers the `confirmation` hooks (HIL). If any
+confirmation hook rejects, or none is registered, the call is denied (fail-safe).
+Policy, guardrails, audit, and cost limits are all just hooks — nothing special in
+the core.
 
 ## Admin API
 

@@ -6,8 +6,12 @@ plugin manager and no auth subsystem. Hooks are grouped in :class:`Hooks` and bo
 to the correct layer:
 
 - ``pre_mcp_connect`` runs in the proxy client factory (see ``connect.py``).
-- ``pre_list_tools`` / ``pre_tool_call`` / ``post_tool_call`` run in
-  :class:`HookMiddleware`, a thin FastMCP middleware dispatcher.
+- ``pre_list_tools`` / ``pre_tool_call`` / ``confirmation`` / ``post_tool_call`` run
+  in :class:`HookMiddleware`, a thin FastMCP middleware dispatcher.
+
+A ``pre_tool_call`` hook returning ``REQUIRE_CONFIRMATION`` triggers the
+``confirmation`` hooks (human-in-the-loop); if any of them rejects — or none is
+registered — the call is denied (fail-safe).
 
 Hooks chain in registration order.
 """
@@ -19,6 +23,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from pydantic import BaseModel
 
@@ -54,10 +59,20 @@ class ToolCallResult(BaseModel):
     reason: str | None = None
 
 
+class ConfirmationContext(BaseModel):
+    """Passed to ``confirmation`` hooks when a tool call requires approval."""
+
+    tool_name: str
+    arguments: dict[str, Any] = {}
+    reason: str | None = None
+
+
 # Hook function signatures. All hooks are async.
 ConnectHook = Callable[[ConnectContext], Awaitable[ConnectSettings | None]]
 ListToolsHook = Callable[[MiddlewareContext[Any]], Awaitable[None]]
 PreToolCallHook = Callable[[MiddlewareContext[Any]], Awaitable[ToolCallResult | None]]
+# Returns True to approve the call, False to reject it.
+ConfirmationHook = Callable[[ConfirmationContext], Awaitable[bool]]
 PostToolCallHook = Callable[[MiddlewareContext[Any], Any], Awaitable[Any]]
 
 
@@ -68,15 +83,12 @@ class Hooks:
     pre_mcp_connect: list[ConnectHook] = field(default_factory=list)
     pre_list_tools: list[ListToolsHook] = field(default_factory=list)
     pre_tool_call: list[PreToolCallHook] = field(default_factory=list)
+    confirmation: list[ConfirmationHook] = field(default_factory=list)
     post_tool_call: list[PostToolCallHook] = field(default_factory=list)
 
 
 class HookMiddleware(Middleware):
-    """Dispatches list/tool hooks around upstream calls.
-
-    NOTE: scaffolding stub — currently a transparent pass-through that records the
-    hooks. The deny / require-confirmation / redaction semantics land in Milestone 2.
-    """
+    """Dispatches list/tool hooks around upstream calls."""
 
     def __init__(self, hooks: Hooks) -> None:
         self.hooks = hooks
@@ -90,6 +102,39 @@ class HookMiddleware(Middleware):
     async def on_call_tool(
         self, context: MiddlewareContext[Any], call_next: Callable[..., Any]
     ) -> Any:
-        # TODO(Milestone 2): run pre_tool_call (deny/mutate/confirm), then
-        # post_tool_call on the result for redaction/audit.
-        return await call_next(context)
+        message = context.message
+        for hook in self.hooks.pre_tool_call:
+            result = await hook(context)
+            if result is None:
+                continue
+            if result.arguments is not None:
+                message.arguments = result.arguments
+            if result.decision is ToolDecision.DENY:
+                raise ToolError(result.reason or f"Tool '{message.name}' denied by policy.")
+            if result.decision is ToolDecision.REQUIRE_CONFIRMATION:
+                await self._require_confirmation(message, result)
+
+        response = await call_next(context)
+
+        for post_hook in self.hooks.post_tool_call:
+            response = await post_hook(context, response)
+        return response
+
+    async def _require_confirmation(self, message: Any, result: ToolCallResult) -> None:
+        """Run the confirmation hooks; deny the call if any rejects or none exists."""
+        if not self.hooks.confirmation:
+            # Fail-safe: confirmation was demanded but nothing can grant it.
+            raise ToolError(
+                f"Tool '{message.name}' requires confirmation but no confirmation "
+                f"hook is registered."
+            )
+
+        confirmation_context = ConfirmationContext(
+            tool_name=message.name,
+            arguments=message.arguments or {},
+            reason=result.reason,
+        )
+        for hook in self.hooks.confirmation:
+            approved = await hook(confirmation_context)
+            if not approved:
+                raise ToolError(result.reason or f"Tool '{message.name}' was not confirmed.")

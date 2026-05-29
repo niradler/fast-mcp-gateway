@@ -9,6 +9,7 @@ See ``create_gateway`` for assembling a gateway and mounting it on a FastAPI app
 
 from mcp_gateway.app import Gateway, create_gateway
 from mcp_gateway.hooks import (
+    ConfirmationContext,
     ConnectContext,
     ConnectSettings,
     Hooks,
@@ -28,6 +29,7 @@ from mcp_gateway.store import SqliteStore, Store
 __version__ = "0.1.0"
 
 __all__ = [
+    "ConfirmationContext",
     "ConnectContext",
     "ConnectSettings",
     "Gateway",

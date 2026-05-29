@@ -13,11 +13,11 @@ from pydantic import BaseModel, Field
 
 
 class Transport(StrEnum):
-    """Transport used to reach an upstream MCP server."""
+    """Transport used to reach an upstream MCP server. The gateway proxies remote
+    servers only — local stdio subprocesses are out of scope."""
 
     HTTP = "http"
     SSE = "sse"
-    STDIO = "stdio"
 
 
 class ServerBase(BaseModel):
@@ -25,10 +25,7 @@ class ServerBase(BaseModel):
 
     name: str = Field(description="Unique name; also used as the mount namespace/prefix.")
     transport: Transport = Field(default=Transport.HTTP)
-    url: str | None = Field(default=None, description="Endpoint URL for http/sse transports.")
-    command: list[str] | None = Field(
-        default=None, description="Argv for the stdio transport, e.g. ['npx', 'server']."
-    )
+    url: str = Field(description="Endpoint URL for the upstream MCP server.")
     static_headers: dict[str, str] = Field(
         default_factory=dict,
         description="Headers always sent upstream; merged under hook-provided headers.",
@@ -54,7 +51,6 @@ class ServerPatch(BaseModel):
     name: str | None = None
     transport: Transport | None = None
     url: str | None = None
-    command: list[str] | None = None
     static_headers: dict[str, str] | None = None
     allow: list[str] | None = None
     deny: list[str] | None = None
