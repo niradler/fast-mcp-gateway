@@ -24,7 +24,6 @@ if TYPE_CHECKING:
     from fastmcp.server.middleware import Middleware
     from starlette.types import ASGIApp
 
-    from mcp_gateway.access import AccessPolicy
     from mcp_gateway.store.base import Store
 
 
@@ -32,13 +31,11 @@ if TYPE_CHECKING:
 class GatewayContext:
     """Handle to gateway internals, passed to each plugin's ``contributions``.
 
-    Lets a plugin read the registry (``store``), consult or extend the compiled
-    ``policy``, register state on the parent ``mcp``, and trigger a registry
-    ``reload`` (e.g. after mutating servers/groups).
+    Lets a plugin read the registry (``store``), register state on the parent
+    ``mcp``, and trigger a registry ``reload`` (e.g. after mutating servers/groups).
     """
 
     store: Store
-    policy: AccessPolicy
     mcp: FastMCP
     reload: Callable[[], Awaitable[None]]
 

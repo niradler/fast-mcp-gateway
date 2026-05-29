@@ -111,7 +111,7 @@ def create_gateway(
     async def _reload() -> None:
         await builder.reload()  # `builder` is assigned later in this scope; only called at runtime
 
-    context = GatewayContext(store=store, policy=policy, mcp=mcp, reload=_reload)
+    context = GatewayContext(store=store, mcp=mcp, reload=_reload)
     contributions = [p.contributions(context) for p in plugins]
     effective_hooks = merge_hooks(base_hooks, *(c.hooks for c in contributions))
 

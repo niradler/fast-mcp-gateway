@@ -22,7 +22,6 @@ def test_plugin_contributions_defaults_are_empty() -> None:
 async def test_minimal_plugin_satisfies_protocol() -> None:
     from fastmcp import FastMCP
 
-    from mcp_gateway.access import AccessPolicy
     from mcp_gateway.plugins import GatewayContext, Plugin, PluginContributions
     from mcp_gateway.store.sqlite import SqliteStore
 
@@ -30,7 +29,6 @@ async def test_minimal_plugin_satisfies_protocol() -> None:
 
     ctx = GatewayContext(
         store=SqliteStore(":memory:"),
-        policy=AccessPolicy(),
         mcp=FastMCP("t"),
         reload=_noop_reload,
     )
