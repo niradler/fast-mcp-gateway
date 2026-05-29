@@ -6,13 +6,13 @@ sandboxing — things the ``pre_tool_call`` / ``post_tool_call`` seams cannot ex
 because they need to wrap execution of the upstream call itself), an admin
 ``APIRouter``, ASGI sub-app mounts (e.g. a third-party governance HTTP API), MCP
 meta-tool registration, and async ``setup`` / ``teardown`` bound to the gateway
-lifespan. ``create_gateway`` applies every plugin's contributions when assembling
-the gateway.
+lifespan. ``create_gateway`` calls each plugin's ``contributions(ctx)`` — passing a
+:class:`GatewayContext` — when assembling the gateway.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -23,6 +23,24 @@ if TYPE_CHECKING:
     from fastmcp import FastMCP
     from fastmcp.server.middleware import Middleware
     from starlette.types import ASGIApp
+
+    from mcp_gateway.access import AccessPolicy
+    from mcp_gateway.store.base import Store
+
+
+@dataclass
+class GatewayContext:
+    """Handle to gateway internals, passed to each plugin's ``contributions``.
+
+    Lets a plugin read the registry (``store``), consult or extend the compiled
+    ``policy``, register state on the parent ``mcp``, and trigger a registry
+    ``reload`` (e.g. after mutating servers/groups).
+    """
+
+    store: Store
+    policy: AccessPolicy
+    mcp: FastMCP
+    reload: Callable[[], Awaitable[None]]
 
 
 @dataclass
@@ -50,7 +68,7 @@ class Plugin(Protocol):
 
     name: str
 
-    def contributions(self) -> PluginContributions:
+    def contributions(self, context: GatewayContext) -> PluginContributions:
         """Return the hooks / middleware / endpoints / tools this plugin adds."""
         ...
 

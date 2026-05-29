@@ -21,6 +21,7 @@ from mcp_gateway.api.groups import build_groups_router
 from mcp_gateway.api.servers import build_servers_router
 from mcp_gateway.builder import GatewayBuilder
 from mcp_gateway.hooks import HookMiddleware, Hooks, merge_hooks
+from mcp_gateway.plugins import GatewayContext
 from mcp_gateway.routing import GroupDispatch
 from mcp_gateway.search import register_search_tools
 from mcp_gateway.store.base import Store
@@ -104,11 +105,16 @@ def create_gateway(
     ``setup`` / ``teardown`` are driven from the gateway lifespan.
     """
     base_hooks = hooks or Hooks()
-    contributions = [p.contributions() for p in plugins]
-    effective_hooks = merge_hooks(base_hooks, *(c.hooks for c in contributions))
     policy = AccessPolicy()
-
     mcp: FastMCP = FastMCP(name)
+
+    async def _reload() -> None:
+        await builder.reload()  # `builder` is assigned later in this scope; only called at runtime
+
+    context = GatewayContext(store=store, policy=policy, mcp=mcp, reload=_reload)
+    contributions = [p.contributions(context) for p in plugins]
+    effective_hooks = merge_hooks(base_hooks, *(c.hooks for c in contributions))
+
     mcp.add_middleware(HookMiddleware(effective_hooks, policy))
     for c in contributions:
         for mw in c.middleware:

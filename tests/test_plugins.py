@@ -18,13 +18,27 @@ def test_plugin_contributions_defaults_are_empty() -> None:
     assert c.register_tools is None
 
 
-def test_minimal_plugin_satisfies_protocol() -> None:
-    from mcp_gateway.plugins import Plugin, PluginContributions
+@pytest.mark.asyncio
+async def test_minimal_plugin_satisfies_protocol() -> None:
+    from fastmcp import FastMCP
+
+    from mcp_gateway.access import AccessPolicy
+    from mcp_gateway.plugins import GatewayContext, Plugin, PluginContributions
+    from mcp_gateway.store.sqlite import SqliteStore
+
+    async def _noop_reload() -> None: ...
+
+    ctx = GatewayContext(
+        store=SqliteStore(":memory:"),
+        policy=AccessPolicy(),
+        mcp=FastMCP("t"),
+        reload=_noop_reload,
+    )
 
     class NoopPlugin:
         name = "noop"
 
-        def contributions(self) -> PluginContributions:
+        def contributions(self, context: GatewayContext) -> PluginContributions:
             return PluginContributions()
 
         async def setup(self) -> None: ...
@@ -34,7 +48,7 @@ def test_minimal_plugin_satisfies_protocol() -> None:
     plugin: Plugin = NoopPlugin()
     assert isinstance(plugin, Plugin)
     assert plugin.name == "noop"
-    assert isinstance(plugin.contributions(), PluginContributions)
+    assert isinstance(plugin.contributions(ctx), PluginContributions)
 
 
 def test_merge_hooks_concatenates_each_seam_in_order() -> None:
@@ -68,7 +82,7 @@ async def test_create_gateway_applies_plugin_contributions() -> None:
     from fastapi.testclient import TestClient
 
     from mcp_gateway.app import create_gateway
-    from mcp_gateway.plugins import PluginContributions
+    from mcp_gateway.plugins import GatewayContext, PluginContributions
     from mcp_gateway.store.sqlite import SqliteStore
 
     events: list[str] = []
@@ -90,7 +104,7 @@ async def test_create_gateway_applies_plugin_contributions() -> None:
     class DemoPlugin:
         name = "demo"
 
-        def contributions(self) -> PluginContributions:
+        def contributions(self, context: GatewayContext) -> PluginContributions:
             return PluginContributions(
                 hooks=Hooks(pre_tool_call=[pre]),
                 admin_router=router,
