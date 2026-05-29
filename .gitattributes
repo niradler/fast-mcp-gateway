@@ -1,0 +1,8 @@
+# Normalize line endings to LF in the repository across platforms.
+* text=auto eol=lf
+
+# Binary/lock files git should not touch.
+uv.lock text eol=lf
+*.png binary
+*.whl binary
+*.tar.gz binary

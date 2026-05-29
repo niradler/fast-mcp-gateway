@@ -27,7 +27,7 @@ provided by Nir (philosophy, architecture, reuse-vs-build, hooks, Store, milesto
   pin `fastmcp>=2,<3`.
 - **requires-python >=3.11** (plan/uv-init default was 3.13) for PyPI reach. Dev venv
   still 3.13 via `.python-version`.
-- **MIT license**, author Nir Adler / komodor email. GitHub URLs guessed as
+- **MIT license**, author Nir Adler. GitHub URLs guessed as
   `niradler/fast-mcp-gateway` — confirm/adjust.
 - Type checker: **mypy --strict** as the gate (not `ty` — still pre-1.0, risky on
   pydantic). ruff covers the fast dev loop.
