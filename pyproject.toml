@@ -27,6 +27,16 @@ dependencies = [
     "fastmcp>=3.3.1",
 ]
 
+[project.optional-dependencies]
+# Optional: Microsoft agent-governance-toolkit (agent-os) policy engine. Only the AGT
+# plugin needs it; the gateway and plugin system work fully without it. Install with
+# `pip install fast-mcp-gateway[agt]`. Sourced from GitHub v4 via [tool.uv.sources]
+# below until agent-os-kernel 4.x is published to PyPI.
+# `agent-governance-toolkit-core` is a transitive dep of agent-os-kernel; it is listed
+# explicitly only so its git source (below) applies (uv sources bind to direct deps).
+# Once agent-os-kernel 4.x is on PyPI, drop the core line and the [tool.uv.sources] block.
+agt = ["agent-os-kernel>=4.0.0", "agent-governance-toolkit-core>=4.0.0"]
+
 [project.urls]
 Homepage = "https://github.com/niradler/fast-mcp-gateway"
 Repository = "https://github.com/niradler/fast-mcp-gateway"
@@ -41,6 +51,13 @@ packages = ["src/mcp_gateway"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/mcp_gateway", "README.md", "LICENSE"]
+
+# TODO: agent-os 4.x lives only in the GitHub monorepo for now (PyPI `agent-os-kernel`
+# lags at 3.7.0). Pull the kernel and its in-repo `core` dependency from git. Remove both
+# entries once agent-os-kernel 4.x publishes to PyPI — the `agt` extra resolves normally then.
+[tool.uv.sources]
+agent-os-kernel = { git = "https://github.com/microsoft/agent-governance-toolkit.git", subdirectory = "agent-governance-python/agent-os" }
+agent-governance-toolkit-core = { git = "https://github.com/microsoft/agent-governance-toolkit.git", subdirectory = "agent-governance-python/agent-governance-toolkit-core" }
 
 [dependency-groups]
 dev = [
@@ -89,6 +106,10 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = "tests.*"
 disallow_untyped_decorators = false
+
+[[tool.mypy.overrides]]
+module = "agent_os.*"
+ignore_missing_imports = true
 
 [tool.pydantic-mypy]
 init_forbid_extra = true
