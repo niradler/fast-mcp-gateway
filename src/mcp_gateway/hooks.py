@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any
 
+import mcp.types as mt
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.tools.base import Tool
@@ -79,10 +80,12 @@ CatalogProvider = Callable[[], Awaitable[Sequence[Tool]]]
 ConnectHook = Callable[[ConnectContext], Awaitable[ConnectSettings | None]]
 # Receives the current tool catalog and returns the (possibly filtered/transformed) catalog.
 ListToolsHook = Callable[[MiddlewareContext[Any], Sequence[Tool]], Awaitable[Sequence[Tool]]]
-PreToolCallHook = Callable[[MiddlewareContext[Any]], Awaitable[ToolCallResult | None]]
+PreToolCallHook = Callable[
+    [MiddlewareContext[mt.CallToolRequestParams]], Awaitable[ToolCallResult | None]
+]
 # Returns True to approve the call, False to reject it.
 ConfirmationHook = Callable[[ConfirmationContext], Awaitable[bool]]
-PostToolCallHook = Callable[[MiddlewareContext[Any], Any], Awaitable[Any]]
+PostToolCallHook = Callable[[MiddlewareContext[mt.CallToolRequestParams], Any], Awaitable[Any]]
 
 
 @dataclass
@@ -149,7 +152,7 @@ class HookMiddleware(Middleware):
         return tools
 
     async def on_call_tool(
-        self, context: MiddlewareContext[Any], call_next: Callable[..., Any]
+        self, context: MiddlewareContext[mt.CallToolRequestParams], call_next: Callable[..., Any]
     ) -> Any:
         message = context.message
         if self.policy is not None and not self.policy.allows(message.name, current_group.get()):
