@@ -89,8 +89,18 @@ class GroupBase(BaseModel):
         description="Unique group name; used in the /mcp/g/{group} route and as the policy key.",
     )
     member_server_ids: list[str] = Field(default_factory=list)
-    allow: list[str] = Field(default_factory=list, description="Group-level allow overrides.")
-    deny: list[str] = Field(default_factory=list, description="Group-level deny overrides.")
+    allow: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Group-level allow globs, applied on top of each member server's rules "
+            "(empty = inherit server). Can only narrow: a tool the owning server denies "
+            "stays denied even if a group allow matches it."
+        ),
+    )
+    deny: list[str] = Field(
+        default_factory=list,
+        description="Group-level deny globs, layered on top of server rules; deny wins.",
+    )
 
 
 class GroupCreate(GroupBase):
