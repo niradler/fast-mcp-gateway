@@ -183,7 +183,9 @@ async def test_policy_blocks_tool_call_end_to_end() -> None:
         async with Client(gateway.mcp) as client:
             allowed = await client.call_tool("read_file", {})
             assert allowed.data == "contents"
-            with pytest.raises(ToolError):
+            with pytest.raises(ToolError) as blocked:
                 await client.call_tool("delete_all", {})
+            # The block is policy-driven: the denial carries the policy's reason.
+            assert "delete_all" in str(blocked.value)
     finally:
         await store.close()
