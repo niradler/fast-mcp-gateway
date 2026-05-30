@@ -14,17 +14,15 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
+
+from fastapi import APIRouter
+from fastmcp import FastMCP
+from fastmcp.server.middleware import Middleware
+from starlette.types import ASGIApp
 
 from mcp_gateway.hooks import Hooks
-
-if TYPE_CHECKING:
-    from fastapi import APIRouter
-    from fastmcp import FastMCP
-    from fastmcp.server.middleware import Middleware
-    from starlette.types import ASGIApp
-
-    from mcp_gateway.store.base import Store
+from mcp_gateway.store.base import Store
 
 
 @dataclass
