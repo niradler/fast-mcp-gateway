@@ -16,12 +16,16 @@ them without importing ``sqlite3``:
 from __future__ import annotations
 
 import json
+import logging
+import re
 import sqlite3
 import uuid
+from collections.abc import Sequence
 
 import aiosqlite
 
 from mcp_gateway.models import (
+    CatalogTool,
     GroupCreate,
     GroupPatch,
     GroupRecord,
@@ -30,6 +34,8 @@ from mcp_gateway.models import (
     ServerRecord,
     Transport,
 )
+
+logger = logging.getLogger("mcp_gateway.store.sqlite")
 
 _CREATE_SERVERS = """
 CREATE TABLE IF NOT EXISTS servers (
@@ -56,8 +62,47 @@ CREATE TABLE IF NOT EXISTS groups (
 )
 """
 
+_CREATE_CATALOG = """
+CREATE TABLE IF NOT EXISTS catalog_tools (
+    name          TEXT PRIMARY KEY,
+    server_id     TEXT NOT NULL,
+    namespace     TEXT NOT NULL,
+    bare_name     TEXT NOT NULL,
+    title         TEXT,
+    description   TEXT,
+    tags          TEXT NOT NULL DEFAULT '[]',
+    parameters    TEXT NOT NULL DEFAULT '{}',
+    output_schema TEXT,
+    annotations   TEXT
+)
+"""
+
+_CREATE_CATALOG_FTS = """
+CREATE VIRTUAL TABLE IF NOT EXISTS catalog_fts
+USING fts5(name, bare_name, description, tags)
+"""
+
 _COLUMNS = "id, name, transport, url, static_headers, allow, deny, timeout_seconds, enabled, tags"
 _GROUP_COLUMNS = "id, name, member_server_ids, allow, deny"
+_CATALOG_COLUMNS = (
+    "name, server_id, namespace, bare_name, title, description, "
+    "tags, parameters, output_schema, annotations"
+)
+
+_FTS_TOKEN = re.compile(r"[a-z0-9]+")
+
+
+def _fts_match_query(query: str) -> str | None:
+    """Turn a free-text query into a safe FTS5 MATCH expression, or ``None``.
+
+    Tokens are reduced to ``[a-z0-9]`` runs (so no FTS5 operator can slip in) and
+    OR'd together as prefix terms — ``"add num"`` becomes ``add* OR num*``. Returns
+    ``None`` when the query has no usable tokens.
+    """
+    tokens = _FTS_TOKEN.findall(query.lower())
+    if not tokens:
+        return None
+    return " OR ".join(f"{token}*" for token in tokens)
 
 
 def _row_to_server(row: aiosqlite.Row) -> ServerRecord:
@@ -110,12 +155,63 @@ def _group_values(record: GroupRecord) -> tuple[object, ...]:
     )
 
 
+def _rank_by_overlap(tools: Sequence[CatalogTool], query: str) -> list[CatalogTool]:
+    """Rank ``tools`` by weighted token overlap with ``query`` (name matches weigh more).
+
+    Used only when SQLite FTS5 is unavailable. Tools with no token hit are dropped.
+    """
+    terms = set(_FTS_TOKEN.findall(query.lower()))
+    if not terms:
+        return list(tools)
+
+    scored: list[tuple[int, str, CatalogTool]] = []
+    for tool in tools:
+        name = tool.name.lower()
+        haystack = f"{tool.description or ''} {' '.join(tool.tags)}".lower()
+        score = sum(2 * (term in name) + (term in haystack) for term in terms)
+        if score:
+            scored.append((score, tool.name, tool))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [tool for _, _, tool in scored]
+
+
+def _row_to_catalog_tool(row: aiosqlite.Row) -> CatalogTool:
+    return CatalogTool(
+        name=row["name"],
+        server_id=row["server_id"],
+        namespace=row["namespace"],
+        bare_name=row["bare_name"],
+        title=row["title"],
+        description=row["description"],
+        tags=json.loads(row["tags"]),
+        parameters=json.loads(row["parameters"]),
+        output_schema=json.loads(row["output_schema"]) if row["output_schema"] else None,
+        annotations=json.loads(row["annotations"]) if row["annotations"] else None,
+    )
+
+
+def _catalog_values(tool: CatalogTool) -> tuple[object, ...]:
+    return (
+        tool.name,
+        tool.server_id,
+        tool.namespace,
+        tool.bare_name,
+        tool.title,
+        tool.description,
+        json.dumps(tool.tags),
+        json.dumps(tool.parameters),
+        json.dumps(tool.output_schema) if tool.output_schema is not None else None,
+        json.dumps(tool.annotations) if tool.annotations is not None else None,
+    )
+
+
 class SqliteStore:
-    """Persists servers and groups in a single SQLite file."""
+    """Persists servers, groups, and the tool catalog in a single SQLite file."""
 
     def __init__(self, path: str = "gateway.db") -> None:
         self.path = path
         self._db: aiosqlite.Connection | None = None
+        self._fts_enabled = False
 
     @property
     def _conn(self) -> aiosqlite.Connection:
@@ -124,12 +220,23 @@ class SqliteStore:
         return self._db
 
     async def initialize(self) -> None:
-        """Open the connection and create tables if they do not exist."""
+        """Open the connection and create tables if they do not exist.
+
+        Probes for SQLite FTS5 (the catalog search index). If the build lacks it,
+        ``search_catalog`` transparently falls back to an in-Python ranked scan.
+        """
         if self._db is None:
             self._db = await aiosqlite.connect(self.path)
             self._db.row_factory = aiosqlite.Row
         await self._db.execute(_CREATE_SERVERS)
         await self._db.execute(_CREATE_GROUPS)
+        await self._db.execute(_CREATE_CATALOG)
+        try:
+            await self._db.execute(_CREATE_CATALOG_FTS)
+            self._fts_enabled = True
+        except sqlite3.OperationalError:
+            self._fts_enabled = False
+            logger.warning("SQLite FTS5 unavailable; catalog search falls back to a scan.")
         await self._db.commit()
 
     async def close(self) -> None:
@@ -229,3 +336,73 @@ class SqliteStore:
         await self._conn.commit()
         if cursor.rowcount == 0:
             raise KeyError(group_id)
+
+    async def replace_catalog(self, tools: Sequence[CatalogTool]) -> None:
+        """Wipe and repopulate the catalog (and its FTS index) in one transaction."""
+        placeholders = ", ".join(["?"] * 10)
+        rows = [_catalog_values(tool) for tool in tools]
+        await self._conn.execute("DELETE FROM catalog_tools")
+        if rows:
+            await self._conn.executemany(
+                f"INSERT INTO catalog_tools ({_CATALOG_COLUMNS}) VALUES ({placeholders})", rows
+            )
+        if self._fts_enabled:
+            await self._conn.execute("DELETE FROM catalog_fts")
+            if tools:
+                await self._conn.executemany(
+                    "INSERT INTO catalog_fts (name, bare_name, description, tags) "
+                    "VALUES (?, ?, ?, ?)",
+                    [
+                        (t.name, t.bare_name, t.description or "", " ".join(t.tags))
+                        for t in tools
+                    ],
+                )
+        await self._conn.commit()
+
+    async def list_catalog(self) -> list[CatalogTool]:
+        cursor = await self._conn.execute(
+            f"SELECT {_CATALOG_COLUMNS} FROM catalog_tools ORDER BY name"
+        )
+        rows = await cursor.fetchall()
+        return [_row_to_catalog_tool(row) for row in rows]
+
+    async def get_catalog_tool(self, name: str) -> CatalogTool | None:
+        cursor = await self._conn.execute(
+            f"SELECT {_CATALOG_COLUMNS} FROM catalog_tools WHERE name = ?", (name,)
+        )
+        row = await cursor.fetchone()
+        return _row_to_catalog_tool(row) if row is not None else None
+
+    async def search_catalog(self, query: str, limit: int = 10) -> list[CatalogTool]:
+        """Rank catalog tools against ``query``; FTS5 (bm25) when available, else scan.
+
+        An empty query browses the catalog in name order. Results never include
+        permission filtering — the caller applies allow/deny and group scoping.
+        """
+        if limit <= 0:
+            return []
+
+        match = _fts_match_query(query)
+        if match is None:
+            cursor = await self._conn.execute(
+                f"SELECT {_CATALOG_COLUMNS} FROM catalog_tools ORDER BY name LIMIT ?", (limit,)
+            )
+            return [_row_to_catalog_tool(row) for row in await cursor.fetchall()]
+
+        if self._fts_enabled:
+            return await self._search_fts(match, limit)
+        return await self._search_scan(query, limit)
+
+    async def _search_fts(self, match: str, limit: int) -> list[CatalogTool]:
+        cursor = await self._conn.execute(
+            "SELECT t.* FROM catalog_fts f JOIN catalog_tools t ON t.name = f.name "
+            "WHERE catalog_fts MATCH ? ORDER BY bm25(catalog_fts) LIMIT ?",
+            (match, limit),
+        )
+        return [_row_to_catalog_tool(row) for row in await cursor.fetchall()]
+
+    async def _search_scan(self, query: str, limit: int) -> list[CatalogTool]:
+        """FTS5-free fallback: load the catalog and rank by weighted token overlap."""
+        tools = await self.list_catalog()
+        ranked = _rank_by_overlap(tools, query)
+        return ranked[:limit]

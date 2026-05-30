@@ -73,6 +73,11 @@ class ConfirmationContext(BaseModel):
     reason: str | None = None
 
 
+# Returns the gateway's tool catalog as FastMCP tools. When supplied to
+# HookMiddleware it replaces the live upstream fan-out on tools/list with the
+# persisted snapshot (see app.create_gateway).
+CatalogProvider = Callable[[], Awaitable[Sequence[Tool]]]
+
 # Hook function signatures. All hooks are async.
 ConnectHook = Callable[[ConnectContext], Awaitable[ConnectSettings | None]]
 # Receives the current tool catalog and returns the (possibly filtered/transformed) catalog.
@@ -114,9 +119,15 @@ def merge_hooks(*groups: Hooks) -> Hooks:
 class HookMiddleware(Middleware):
     """Dispatches list/tool hooks around upstream calls."""
 
-    def __init__(self, hooks: Hooks, policy: AccessPolicy | None = None) -> None:
+    def __init__(
+        self,
+        hooks: Hooks,
+        policy: AccessPolicy | None = None,
+        catalog: CatalogProvider | None = None,
+    ) -> None:
         self.hooks = hooks
         self.policy = policy
+        self.catalog = catalog
 
     async def on_list_tools(
         self, context: MiddlewareContext[Any], call_next: Callable[..., Any]
@@ -124,10 +135,16 @@ class HookMiddleware(Middleware):
         """Obtain the tool catalog, apply the access policy filter, then thread
         through each ``pre_list_tools`` hook in registration order.
 
-        Policy filtering happens before user hooks so namespace splitting works
-        correctly on the original namespaced names (user hooks may rename tools).
+        When a ``catalog`` provider is configured the persisted snapshot answers
+        the request (no upstream fan-out); otherwise the live aggregation
+        (``call_next``) is used. Policy filtering happens before user hooks so
+        namespace splitting works correctly on the original namespaced names
+        (user hooks may rename tools).
         """
-        tools: Sequence[Tool] = await call_next(context)
+        if self.catalog is not None:
+            tools: Sequence[Tool] = await self.catalog()
+        else:
+            tools = await call_next(context)
         if self.policy is not None:
             tools = self.policy.filter_tools(tools, group=current_group.get())
         for hook in self.hooks.pre_list_tools:

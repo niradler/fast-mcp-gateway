@@ -53,9 +53,6 @@ make run         # run examples/basic_app.py with uvicorn --reload
 make build       # sdist + wheel
 ```
 
-On Windows `make` isn't built in — use WSL/Git Bash, `scoop install make`, or run the
-underlying `uv run ...` commands directly.
-
 ## Layout
 
 ```
@@ -93,13 +90,5 @@ Milestone 0 (scaffold) is in place: package skeleton, `Store` protocol + `Sqlite
 stub, `create_gateway()` mounting an **empty** FastMCP on FastAPI, admin routes wired
 (returning `501`), tooling, tests, docs. Most handlers/builder/store bodies raise
 `NotImplementedError` with a `Milestone N` marker — implement per the README roadmap.
-
-Done beyond the scaffold:
-- Transports are **HTTP/SSE only** (no stdio — gateway proxies remote servers).
-- `HookMiddleware.on_call_tool` is implemented: `pre_tool_call` → deny / mutate args /
-  `REQUIRE_CONFIRMATION` (triggers the `confirmation` HIL hooks; fail-safe deny if a
-  confirmation hook rejects or none is registered) → `post_tool_call` transforms the
-  result. Tested in `tests/test_hooks.py`. Still stubbed: `on_list_tools`
-  (`pre_list_tools` catalog filtering).
 
 Working notes and next steps live in `.claude/docs/`.

@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from mcp_gateway.models import GroupCreate, GroupPatch, ServerCreate, ServerPatch, Transport
+from mcp_gateway.models import (
+    CatalogTool,
+    GroupCreate,
+    GroupPatch,
+    ServerCreate,
+    ServerPatch,
+    Transport,
+)
 from mcp_gateway.store.sqlite import SqliteStore
 
 
@@ -177,3 +184,120 @@ async def test_group_delete_removes_record(store: SqliteStore) -> None:
 async def test_group_delete_missing_raises(store: SqliteStore) -> None:
     with pytest.raises(KeyError):
         await store.delete_group("nope")
+
+
+# ---------------------------------------------------------------------------
+# Catalog persistence + search
+# ---------------------------------------------------------------------------
+
+
+def catalog_sample() -> list[CatalogTool]:
+    return [
+        CatalogTool(
+            server_id="s1",
+            namespace="math",
+            name="math_add",
+            bare_name="add",
+            description="Add two numbers together.",
+            tags=["arith"],
+            parameters={"type": "object", "properties": {"a": {"type": "integer"}}},
+            output_schema={"type": "integer"},
+        ),
+        CatalogTool(
+            server_id="s1",
+            namespace="math",
+            name="math_subtract",
+            bare_name="subtract",
+            description="Subtract one number from another.",
+            tags=["arith"],
+        ),
+        CatalogTool(
+            server_id="s2",
+            namespace="text",
+            name="text_upper",
+            bare_name="upper",
+            description="Uppercase a string.",
+            tags=["string"],
+        ),
+    ]
+
+
+async def test_replace_then_list_catalog_roundtrips(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    names = [t.name for t in await store.list_catalog()]
+    assert names == ["math_add", "math_subtract", "text_upper"]
+
+
+async def test_replace_catalog_preserves_schema_fields(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    tool = await store.get_catalog_tool("math_add")
+    assert tool is not None
+    assert tool.bare_name == "add"
+    assert tool.namespace == "math"
+    assert tool.tags == ["arith"]
+    assert tool.parameters["properties"]["a"]["type"] == "integer"
+    assert tool.output_schema == {"type": "integer"}
+
+
+async def test_replace_catalog_is_idempotent(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    await store.replace_catalog(catalog_sample())
+    assert len(await store.list_catalog()) == 3
+
+
+async def test_replace_catalog_drops_previous_tools(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    await store.replace_catalog([catalog_sample()[0]])
+    names = [t.name for t in await store.list_catalog()]
+    assert names == ["math_add"]
+
+
+async def test_replace_with_empty_clears_catalog(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    await store.replace_catalog([])
+    assert await store.list_catalog() == []
+
+
+async def test_get_catalog_tool_missing_returns_none(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    assert await store.get_catalog_tool("nope") is None
+
+
+async def test_search_catalog_matches_name(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    names = [t.name for t in await store.search_catalog("add")]
+    assert names == ["math_add"]
+
+
+async def test_search_catalog_matches_description_token(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    names = {t.name for t in await store.search_catalog("number")}
+    assert names == {"math_add", "math_subtract"}
+
+
+async def test_search_catalog_matches_tag(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    names = [t.name for t in await store.search_catalog("string")]
+    assert names == ["text_upper"]
+
+
+async def test_search_catalog_empty_query_browses(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    names = [t.name for t in await store.search_catalog("", limit=2)]
+    assert names == ["math_add", "math_subtract"]
+
+
+async def test_search_catalog_respects_limit(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    assert len(await store.search_catalog("", limit=1)) == 1
+
+
+async def test_search_catalog_nonalnum_query_browses(store: SqliteStore) -> None:
+    """A query with no usable tokens degrades to a browse rather than erroring."""
+    await store.replace_catalog(catalog_sample())
+    assert len(await store.search_catalog("!!!")) == 3
+
+
+async def test_search_catalog_no_match_returns_empty(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    assert await store.search_catalog("zzzznomatch") == []

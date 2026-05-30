@@ -9,7 +9,10 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
+from collections.abc import Sequence
+
 from mcp_gateway.models import (
+    CatalogTool,
     GroupCreate,
     GroupPatch,
     GroupRecord,
@@ -51,3 +54,26 @@ class Store(Protocol):
     async def update_group(self, group_id: str, patch: GroupPatch) -> GroupRecord: ...
 
     async def delete_group(self, group_id: str) -> None: ...
+
+    async def replace_catalog(self, tools: Sequence[CatalogTool]) -> None:
+        """Atomically replace the persisted tool catalog with ``tools``.
+
+        Called by ``GatewayBuilder.reload`` after introspecting the upstreams.
+        Backends that support full-text search rebuild their index here."""
+        ...
+
+    async def list_catalog(self) -> list[CatalogTool]:
+        """Return the full persisted catalog (namespaced, unfiltered)."""
+        ...
+
+    async def search_catalog(self, query: str, limit: int = 10) -> list[CatalogTool]:
+        """Return catalog tools matching ``query``, best match first, capped at ``limit``.
+
+        An empty/whitespace query returns the catalog (bounded by ``limit``) so callers
+        can browse. Permission filtering (allow/deny, groups) is applied by the caller,
+        not here."""
+        ...
+
+    async def get_catalog_tool(self, name: str) -> CatalogTool | None:
+        """Return one catalog tool by its namespaced ``name``, or ``None``."""
+        ...

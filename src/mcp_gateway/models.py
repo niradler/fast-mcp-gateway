@@ -8,6 +8,7 @@ between these models and their own representation.
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -91,3 +92,30 @@ class GroupRecord(GroupBase):
     """A persisted group, as returned by the store and admin API."""
 
     id: str
+
+
+class CatalogTool(BaseModel):
+    """One upstream tool, as captured in the persisted catalog snapshot.
+
+    The snapshot is rebuilt on every ``GatewayBuilder.reload`` by introspecting the
+    enabled upstreams. It is the single source of truth for both the gateway's
+    ``tools/list`` and the ``search_tools`` / ``describe_tool`` meta-tools, so it
+    carries enough of each tool's schema to reconstruct the MCP wire form without
+    re-querying upstreams.
+
+    ``name`` is the namespaced name as exposed by the gateway (``"<namespace>_<bare>"``);
+    ``bare_name`` is the unprefixed name on the upstream.
+    """
+
+    server_id: str
+    namespace: str = Field(description="Owning server's name; the mount namespace.")
+    name: str = Field(description="Namespaced tool name as exposed by the gateway.")
+    bare_name: str = Field(description="Unprefixed tool name on the upstream server.")
+    title: str | None = None
+    description: str | None = None
+    tags: list[str] = Field(default_factory=list)
+    parameters: dict[str, Any] = Field(
+        default_factory=dict, description="JSON schema for the tool's input."
+    )
+    output_schema: dict[str, Any] | None = None
+    annotations: dict[str, Any] | None = None

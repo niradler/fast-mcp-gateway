@@ -20,6 +20,7 @@ from mcp_gateway.access import AccessPolicy
 from mcp_gateway.api.groups import build_groups_router
 from mcp_gateway.api.servers import build_servers_router
 from mcp_gateway.builder import GatewayBuilder
+from mcp_gateway.catalog import catalog_tool_to_fastmcp
 from mcp_gateway.hooks import HookMiddleware, Hooks, merge_hooks
 from mcp_gateway.plugins import GatewayContext
 from mcp_gateway.routing import GroupDispatch
@@ -28,6 +29,7 @@ from mcp_gateway.store.base import Store
 
 if TYPE_CHECKING:
     from fastmcp.server.http import StarletteWithLifespan
+    from fastmcp.tools.base import Tool
     from starlette.applications import Starlette
     from starlette.types import Lifespan
 
@@ -115,12 +117,15 @@ def create_gateway(
     contributions = [p.contributions(context) for p in plugins]
     effective_hooks = merge_hooks(base_hooks, *(c.hooks for c in contributions))
 
-    mcp.add_middleware(HookMiddleware(effective_hooks, policy))
+    async def _catalog_tools() -> Sequence[Tool]:
+        return [catalog_tool_to_fastmcp(t) for t in await store.list_catalog()]
+
+    mcp.add_middleware(HookMiddleware(effective_hooks, policy, catalog=_catalog_tools))
     for c in contributions:
         for mw in c.middleware:
             mcp.add_middleware(mw)
 
-    register_search_tools(mcp)
+    register_search_tools(mcp, store, policy)
     for c in contributions:
         if c.register_tools is not None:
             c.register_tools(mcp)

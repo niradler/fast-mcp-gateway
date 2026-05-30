@@ -10,6 +10,7 @@ group — no registry lookups are needed.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from mcp_gateway.access import current_group
@@ -22,6 +23,8 @@ if TYPE_CHECKING:
     from agent_os.policies import AsyncPolicyEvaluator
 
     from mcp_gateway.plugins import GatewayContext
+
+_logger = logging.getLogger("mcp_gateway.integrations.agt")
 
 
 class AgtPolicyPlugin:
@@ -44,13 +47,15 @@ class AgtPolicyPlugin:
     def contributions(self, context: GatewayContext) -> PluginContributions:
         if self._evaluator is None:
             self._evaluator = build_evaluator(self._settings)
-        hook = self._make_enforce_hook(self._evaluator)
-        return PluginContributions(hooks=Hooks(pre_tool_call=[hook]))
+        return PluginContributions(hooks=Hooks(pre_tool_call=[self._make_enforce_hook()]))
 
-    def _make_enforce_hook(self, evaluator: AsyncPolicyEvaluator) -> PreToolCallHook:
+    def _make_enforce_hook(self) -> PreToolCallHook:
         settings = self._settings
 
         async def enforce_policy(ctx: Any) -> ToolCallResult | None:
+            evaluator = self._evaluator
+            if evaluator is None:
+                evaluator = self._evaluator = build_evaluator(settings)
             group = current_group.get()
             tool_name = ctx.message.name
             eval_context = {
@@ -64,6 +69,9 @@ class AgtPolicyPlugin:
             try:
                 decision = await evaluator.evaluate(eval_context)
             except Exception:
+                _logger.warning(
+                    "AGT policy evaluation failed for tool %r", tool_name, exc_info=True
+                )
                 if settings.fail_closed:
                     return ToolCallResult(
                         decision=ToolDecision.DENY, reason="AGT policy evaluation failed"

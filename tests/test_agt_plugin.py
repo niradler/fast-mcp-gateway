@@ -111,6 +111,7 @@ async def test_enforce_hook_denies_disallowed_tool() -> None:
     denied = await _run_hook(hook, "delete_all", None)
     assert denied is not None
     assert denied.decision is ToolDecision.DENY
+    assert "delete_all" in (denied.reason or "")
     await plugin.teardown()
 
 

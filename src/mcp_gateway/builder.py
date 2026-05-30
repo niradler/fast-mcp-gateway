@@ -21,6 +21,7 @@ from fastmcp.server.providers.base import Provider
 from fastmcp.server.providers.proxy import FastMCPProxy
 
 from mcp_gateway.access import AccessPolicy
+from mcp_gateway.catalog import collect_catalog
 from mcp_gateway.connect import build_client_factory
 from mcp_gateway.hooks import Hooks
 from mcp_gateway.store.base import Store
@@ -46,7 +47,9 @@ class GatewayBuilder:
         Resets to the baseline providers, then mounts a proxy per enabled server
         under its name as a namespace.  Also rebuilds the access policy from the
         full server + group lists so namespace splitting and allow/deny rules are
-        current after every reload.
+        current after every reload, and refreshes the persisted tool catalog by
+        introspecting the enabled upstreams (the source for ``tools/list`` and the
+        search meta-tools).
         """
         servers = await self.store.list_servers()
         groups = await self.store.list_groups()
@@ -67,4 +70,11 @@ class GatewayBuilder:
             self.mcp.mount(proxy, namespace=server.name)
             mounted += 1
 
-        logger.info("Gateway reloaded: %d server(s) mounted.", mounted)
+        catalog = await collect_catalog(servers, self.hooks)
+        await self.store.replace_catalog(catalog)
+
+        logger.info(
+            "Gateway reloaded: %d server(s) mounted, %d tool(s) cataloged.",
+            mounted,
+            len(catalog),
+        )
