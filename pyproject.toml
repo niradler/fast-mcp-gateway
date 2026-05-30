@@ -1,6 +1,6 @@
 [project]
 name = "fast-mcp-gateway"
-version = "0.1.0"
+version = "0.0.1"
 description = "A lean, FastMCP-based gateway that turns a registry of upstream MCP servers into one governed, namespaced MCP endpoint mounted on FastAPI."
 readme = "README.md"
 license = "MIT"
@@ -28,10 +28,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Optional: Microsoft agent-governance-toolkit (agent-os) policy engine. Only the AGT
-# plugin needs it; the gateway and plugin system work fully without it. Install with
-# `pip install fast-mcp-gateway[agt]`. Sourced from GitHub v4 via [tool.uv.sources]
-# below until agent-os-kernel 4.x is published to PyPI.
+# Optional, EXPERIMENTAL: Microsoft agent-governance-toolkit (agent-os) policy engine.
+# Only the AGT plugin needs it; the gateway and plugin system work fully without it.
+# Sourced from GitHub via [tool.uv.sources] below until agent-os-kernel 4.x is on PyPI,
+# so install from a uv project (`uv add "fast-mcp-gateway[agt]"`) — plain pip cannot
+# resolve it yet. agent-os-kernel is being consolidated into agent-governance-toolkit-core.
 # `agent-governance-toolkit-core` is a transitive dep of agent-os-kernel; it is listed
 # explicitly only so its git source (below) applies (uv sources bind to direct deps).
 # Once agent-os-kernel 4.x is on PyPI, drop the core line and the [tool.uv.sources] block.

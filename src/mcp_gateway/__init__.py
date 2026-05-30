@@ -25,19 +25,23 @@ from mcp_gateway.models import (
     ServerRecord,
     Transport,
 )
+from mcp_gateway.plugins import GatewayContext, Plugin, PluginContributions
 from mcp_gateway.store import SqliteStore, Store
 
-__version__ = "0.1.0"
+__version__ = "0.0.1"
 
 __all__ = [
     "ConfirmationContext",
     "ConnectContext",
     "ConnectSettings",
     "Gateway",
+    "GatewayContext",
     "GroupCreate",
     "GroupPatch",
     "GroupRecord",
     "Hooks",
+    "Plugin",
+    "PluginContributions",
     "ServerCreate",
     "ServerPatch",
     "ServerRecord",
