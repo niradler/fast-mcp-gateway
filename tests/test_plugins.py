@@ -52,10 +52,10 @@ async def test_minimal_plugin_satisfies_protocol() -> None:
 def test_merge_hooks_concatenates_each_seam_in_order() -> None:
     from mcp_gateway.hooks import merge_hooks
 
-    async def a(ctx):
+    async def a(ctx):  # type: ignore[no-untyped-def]
         return None
 
-    async def b(ctx):
+    async def b(ctx):  # type: ignore[no-untyped-def]
         return None
 
     base = Hooks(pre_tool_call=[a])
@@ -147,14 +147,14 @@ async def test_plugin_pre_hook_enforced_through_middleware() -> None:
             return ToolCallResult(decision=ToolDecision.DENY, reason="nope")
         return None
 
-    mw = HookMiddleware(merge_hooks(Hooks(pre_tool_call=[deny_secret])))
+    mw = HookMiddleware(merge_hooks(Hooks(pre_tool_call=[deny_secret])))  # type: ignore[list-item]
 
     async def call_next(_ctx: SimpleNamespace) -> str:
         return "ok"
 
     ok_ctx = SimpleNamespace(message=SimpleNamespace(name="safe", arguments={}))
-    assert await mw.on_call_tool(ok_ctx, call_next) == "ok"
+    assert await mw.on_call_tool(ok_ctx, call_next) == "ok"  # type: ignore[arg-type]
 
     bad_ctx = SimpleNamespace(message=SimpleNamespace(name="secret", arguments={}))
     with pytest.raises(ToolError):
-        await mw.on_call_tool(bad_ctx, call_next)
+        await mw.on_call_tool(bad_ctx, call_next)  # type: ignore[arg-type]
