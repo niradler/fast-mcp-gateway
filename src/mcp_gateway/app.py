@@ -111,7 +111,7 @@ def create_gateway(
     mcp: FastMCP = FastMCP(name)
 
     async def _reload() -> None:
-        await builder.reload()  # `builder` is assigned later in this scope; only called at runtime
+        await builder.reload()
 
     context = GatewayContext(store=store, mcp=mcp, reload=_reload)
     contributions = [p.contributions(context) for p in plugins]
@@ -147,14 +147,21 @@ def create_gateway(
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
         await store.initialize()
         for plugin in plugins:
-            await plugin.setup()
+            setup = getattr(plugin, "setup", None)
+            if setup is not None:
+                await setup()
         await builder.reload()
         try:
             async with mcp_app.lifespan(app):
                 yield
         finally:
-            for plugin in reversed(list(plugins)):
-                await plugin.teardown()
+            try:
+                for plugin in reversed(list(plugins)):
+                    teardown = getattr(plugin, "teardown", None)
+                    if teardown is not None:
+                        await teardown()
+            finally:
+                await store.close()
 
     return Gateway(
         mcp=mcp,

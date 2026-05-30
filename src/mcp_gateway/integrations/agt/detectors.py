@@ -20,7 +20,7 @@ from agent_os.credential_redactor import CredentialRedactor
 from agent_os.egress_policy import EgressPolicy
 from agent_os.mcp_response_scanner import MCPResponseScanner
 from agent_os.prompt_injection import DetectionConfig, PromptInjectionDetector
-from agent_os.semantic_policy import SemanticPolicyEngine
+from agent_os.semantic_policy import PolicyDenied, SemanticPolicyEngine
 from fastmcp.exceptions import ToolError
 
 from mcp_gateway.hooks import (
@@ -67,22 +67,24 @@ def make_prompt_injection_hook(settings: AgtAgentOsSettings) -> PreToolCallHook:
 
 
 def make_semantic_policy_hook(settings: AgtAgentOsSettings) -> PreToolCallHook:
-    """Deny a tool call whose classified intent is dangerous / in the deny list."""
+    """Deny a tool call whose classified intent is in the deny list.
+
+    ``SemanticPolicyEngine.check`` raises ``PolicyDenied`` when the classified intent is
+    in ``deny``; that is translated into a gateway DENY. The engine's built-in signals
+    are only samples — pass a tuned ``semantic_config`` (agent-os ``SemanticPolicyConfig``,
+    or one from ``load_semantic_policy_config``) for real coverage.
+    """
     engine = SemanticPolicyEngine(
         deny=settings.semantic_deny or None,
         confidence_threshold=settings.semantic_confidence_threshold,
+        config=settings.semantic_config,
     )
 
     async def semantic_policy(ctx: Any) -> ToolCallResult | None:
-        classification = engine.check(
-            ctx.message.name, getattr(ctx.message, "arguments", None) or {}
-        )
-        if classification.is_dangerous:
-            return ToolCallResult(
-                decision=ToolDecision.DENY,
-                reason=classification.explanation
-                or f"Denied by semantic policy (intent: {classification.category}).",
-            )
+        try:
+            engine.check(ctx.message.name, getattr(ctx.message, "arguments", None) or {})
+        except PolicyDenied as denied:
+            return ToolCallResult(decision=ToolDecision.DENY, reason=str(denied))
         return None
 
     return semantic_policy

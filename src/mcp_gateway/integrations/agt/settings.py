@@ -16,38 +16,41 @@ if TYPE_CHECKING:
     from agent_os.egress_policy import EgressRule
     from agent_os.policies import PolicyDocument
     from agent_os.prompt_injection import DetectionConfig
-    from agent_os.semantic_policy import IntentCategory
+    from agent_os.semantic_policy import IntentCategory, SemanticPolicyConfig
 
 
 @dataclass
 class AgtAgentOsSettings:
     """Tunables for :class:`~mcp_gateway.integrations.agt.plugin.AgtAgentOsPlugin`.
 
-    Capabilities beyond the always-on policy engine are opt-in via ``enable_*`` toggles;
-    each carries its companion agent-os config object so nothing is re-modelled here.
+    Capabilities beyond the always-on policy engine are opt-in via ``enable_*`` toggles,
+    each paired with its agent-os config object so nothing is re-modelled here.
+
+    Policy engine (always on) reads ``policy_dir`` (YAML, validated at startup) or
+    in-memory ``policies`` (``policy_dir`` wins). ``injection_config`` is an agent-os
+    ``DetectionConfig`` (pre_tool_call). Semantic policy (pre_tool_call) classifies intent;
+    its built-in signals are only samples, so supply a tuned ``semantic_config``
+    (``SemanticPolicyConfig``) and the ``semantic_deny`` categories to enforce. Response
+    scan and credential redaction run on post_tool_call. ``egress_rules`` are agent-os
+    ``EgressRule`` objects checked at pre_mcp_connect.
     """
 
-    # Policy engine (always on). Provide policies via ``policy_dir`` (YAML docs, loaded
-    # and validated at startup) or in-memory ``policies``; ``policy_dir`` takes precedence.
     policy_dir: str | None = None
     policies: list[PolicyDocument] = field(default_factory=list)
     default_principal: str = "*"
     fail_closed: bool = False
 
-    # Prompt-injection detection (pre_tool_call). Pass an agent-os ``DetectionConfig``.
     enable_prompt_injection: bool = False
     injection_config: DetectionConfig | None = None
 
-    # Semantic-policy intent classification (pre_tool_call).
     enable_semantic_policy: bool = False
     semantic_deny: list[IntentCategory] = field(default_factory=list)
     semantic_confidence_threshold: float = 0.5
+    semantic_config: SemanticPolicyConfig | None = None
 
-    # Response governance (post_tool_call).
     enable_response_scan: bool = False
     enable_credential_redaction: bool = False
 
-    # Egress allowlist (pre_mcp_connect). Provide agent-os ``EgressRule`` objects.
     enable_egress_policy: bool = False
     egress_rules: list[EgressRule] = field(default_factory=list)
     egress_default_action: str = "deny"

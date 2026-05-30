@@ -3,6 +3,7 @@ admin routes are wired (returning 501 until the handlers are implemented)."""
 
 from __future__ import annotations
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -43,3 +44,22 @@ def test_list_servers_starts_empty() -> None:
         response = client.get("/admin/servers")
     assert response.status_code == 200
     assert response.json() == []
+
+
+async def test_lifespan_closes_store_on_shutdown() -> None:
+    """The gateway lifespan opens the store on startup and closes it on shutdown.
+
+    After shutdown the connection is released, so a store call raises ``RuntimeError``.
+    """
+    from asgi_lifespan import LifespanManager
+
+    store = SqliteStore(":memory:")
+    gateway = create_gateway(store)
+    app = FastAPI(lifespan=gateway.lifespan)
+    gateway.install(app)
+
+    async with LifespanManager(app):
+        assert await store.list_servers() == []
+
+    with pytest.raises(RuntimeError):
+        await store.list_servers()

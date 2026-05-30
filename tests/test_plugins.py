@@ -63,7 +63,6 @@ def test_merge_hooks_concatenates_each_seam_in_order() -> None:
     merged = merge_hooks(base, extra)
 
     assert merged.pre_tool_call == [a, b]
-    # inputs untouched
     assert base.pre_tool_call == [a]
     assert extra.pre_tool_call == [b]
 

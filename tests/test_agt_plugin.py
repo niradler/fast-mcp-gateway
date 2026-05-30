@@ -187,15 +187,9 @@ async def test_policy_blocks_tool_call_end_to_end() -> None:
             assert allowed.data == "contents"
             with pytest.raises(ToolError) as blocked:
                 await client.call_tool("delete_all", {})
-            # The block is policy-driven: the denial carries the policy's reason.
             assert "delete_all" in str(blocked.value)
     finally:
         await store.close()
-
-
-# ---------------------------------------------------------------------------
-# Quick-win agent-os capabilities: injection / semantic (pre) + scan / redaction (post)
-# ---------------------------------------------------------------------------
 
 
 def _msg(name: str, arguments: dict[str, Any] | None = None) -> Any:
@@ -216,18 +210,27 @@ async def test_prompt_injection_hook_denies_injection_args() -> None:
     assert denied.decision is ToolDecision.DENY
 
 
-async def test_semantic_policy_hook_allows_benign() -> None:
-    from agent_os.semantic_policy import IntentCategory
+async def test_semantic_policy_hook_denies_with_tuned_config() -> None:
+    from agent_os.semantic_policy import IntentCategory, SemanticPolicyConfig
 
+    from mcp_gateway.hooks import ToolDecision
     from mcp_gateway.integrations.agt.detectors import make_semantic_policy_hook
     from mcp_gateway.integrations.agt.settings import AgtAgentOsSettings
 
+    config = SemanticPolicyConfig(
+        signals={"destructive_data": [("delete", 0.9, "destructive verb")]}
+    )
     hook = make_semantic_policy_hook(
         AgtAgentOsSettings(
-            enable_semantic_policy=True, semantic_deny=[IntentCategory.DESTRUCTIVE_DATA]
+            enable_semantic_policy=True,
+            semantic_deny=[IntentCategory.DESTRUCTIVE_DATA],
+            semantic_config=config,
         )
     )
-    assert await hook(_msg("read_value", {})) is None
+    assert await hook(_msg("query", {"sql": "select * from t"})) is None
+    denied = await hook(_msg("query", {"sql": "delete from users"}))
+    assert denied is not None
+    assert denied.decision is ToolDecision.DENY
 
 
 async def test_response_scan_hook_blocks_unsafe_response() -> None:
