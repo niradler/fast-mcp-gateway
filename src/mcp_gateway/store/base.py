@@ -7,9 +7,8 @@ or in-memory stores are drop-in replacements with no core changes.
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
-
 from collections.abc import Sequence
+from typing import Protocol, runtime_checkable
 
 from mcp_gateway.models import (
     CatalogTool,
