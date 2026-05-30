@@ -16,11 +16,20 @@ pytest.importorskip("agent_os")
 
 def _deny_doc(field: str, value: str, *, name: str = "deny-rule") -> Any:
     """An agent-os PolicyDocument with one rule that denies when ``field == value``."""
-    from agent_os.policies import PolicyCondition, PolicyDocument, PolicyOperator, PolicyRule
+    from agent_os.policies import (
+        PolicyAction,
+        PolicyCondition,
+        PolicyDocument,
+        PolicyOperator,
+        PolicyRule,
+    )
 
     condition = PolicyCondition(field=field, operator=PolicyOperator.EQ, value=value)
     rule = PolicyRule(
-        name=name, condition=condition, action="deny", message=f"{field}={value} denied"
+        name=name,
+        condition=condition,
+        action=PolicyAction.DENY,
+        message=f"{field}={value} denied",
     )
     return PolicyDocument(version="1.0", name="test-policy", rules=[rule])
 
