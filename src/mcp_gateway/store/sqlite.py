@@ -13,6 +13,7 @@ them without importing ``sqlite3``:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -156,12 +157,10 @@ def _group_values(record: GroupRecord) -> tuple[object, ...]:
 def _rank_by_overlap(tools: Sequence[CatalogTool], query: str) -> list[CatalogTool]:
     """Rank ``tools`` by weighted token overlap with ``query`` (name matches weigh more).
 
-    Used only when SQLite FTS5 is unavailable. Tools with no token hit are dropped.
+    Used only when SQLite FTS5 is unavailable, and only reached via ``search_catalog``
+    after the query has yielded at least one token. Tools with no token hit are dropped.
     """
     terms = set(_FTS_TOKEN.findall(query.lower()))
-    if not terms:
-        return list(tools)
-
     scored: list[tuple[int, str, CatalogTool]] = []
     for tool in tools:
         name = tool.name.lower()
@@ -204,12 +203,18 @@ def _catalog_values(tool: CatalogTool) -> tuple[object, ...]:
 
 
 class SqliteStore:
-    """Persists servers, groups, and the tool catalog in a single SQLite file."""
+    """Persists servers, groups, and the tool catalog in a single SQLite file.
+
+    Writes are serialized through ``_write_lock`` because every write shares one
+    connection and ``commit`` flushes all pending changes — without it a write from one
+    coroutine could persist another's half-finished statements across an ``await``.
+    """
 
     def __init__(self, path: str = "gateway.db") -> None:
         self.path = path
         self._db: aiosqlite.Connection | None = None
         self._fts_enabled = False
+        self._write_lock = asyncio.Lock()
 
     @property
     def _conn(self) -> aiosqlite.Connection:
@@ -257,35 +262,38 @@ class SqliteStore:
 
     async def create_server(self, data: ServerCreate) -> ServerRecord:
         record = ServerRecord(id=uuid.uuid4().hex, **data.model_dump())
-        try:
-            await self._conn.execute(
-                f"INSERT INTO servers ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                _server_values(record),
-            )
-            await self._conn.commit()
-        except sqlite3.IntegrityError as exc:
-            raise ValueError(f"A server named {record.name!r} already exists.") from exc
+        async with self._write_lock:
+            try:
+                await self._conn.execute(
+                    f"INSERT INTO servers ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    _server_values(record),
+                )
+                await self._conn.commit()
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(f"A server named {record.name!r} already exists.") from exc
         return record
 
     async def update_server(self, server_id: str, patch: ServerPatch) -> ServerRecord:
-        existing = await self.get_server(server_id)
-        if existing is None:
-            raise KeyError(server_id)
-        updated = existing.model_copy(update=patch.model_dump(exclude_unset=True))
-        try:
-            await self._conn.execute(
-                "UPDATE servers SET name = ?, transport = ?, url = ?, static_headers = ?, "
-                "allow = ?, deny = ?, timeout_seconds = ?, enabled = ?, tags = ? WHERE id = ?",
-                (*_server_values(updated)[1:], server_id),
-            )
-            await self._conn.commit()
-        except sqlite3.IntegrityError as exc:
-            raise ValueError(f"A server named {updated.name!r} already exists.") from exc
+        async with self._write_lock:
+            existing = await self.get_server(server_id)
+            if existing is None:
+                raise KeyError(server_id)
+            updated = existing.model_copy(update=patch.model_dump(exclude_unset=True))
+            try:
+                await self._conn.execute(
+                    "UPDATE servers SET name = ?, transport = ?, url = ?, static_headers = ?, "
+                    "allow = ?, deny = ?, timeout_seconds = ?, enabled = ?, tags = ? WHERE id = ?",
+                    (*_server_values(updated)[1:], server_id),
+                )
+                await self._conn.commit()
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(f"A server named {updated.name!r} already exists.") from exc
         return updated
 
     async def delete_server(self, server_id: str) -> None:
-        cursor = await self._conn.execute("DELETE FROM servers WHERE id = ?", (server_id,))
-        await self._conn.commit()
+        async with self._write_lock:
+            cursor = await self._conn.execute("DELETE FROM servers WHERE id = ?", (server_id,))
+            await self._conn.commit()
         if cursor.rowcount == 0:
             raise KeyError(server_id)
 
@@ -303,56 +311,67 @@ class SqliteStore:
 
     async def create_group(self, data: GroupCreate) -> GroupRecord:
         record = GroupRecord(id=uuid.uuid4().hex, **data.model_dump())
-        try:
-            await self._conn.execute(
-                f"INSERT INTO groups ({_GROUP_COLUMNS}) VALUES (?, ?, ?, ?, ?)",
-                _group_values(record),
-            )
-            await self._conn.commit()
-        except sqlite3.IntegrityError as exc:
-            raise ValueError(f"A group named {record.name!r} already exists.") from exc
+        async with self._write_lock:
+            try:
+                await self._conn.execute(
+                    f"INSERT INTO groups ({_GROUP_COLUMNS}) VALUES (?, ?, ?, ?, ?)",
+                    _group_values(record),
+                )
+                await self._conn.commit()
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(f"A group named {record.name!r} already exists.") from exc
         return record
 
     async def update_group(self, group_id: str, patch: GroupPatch) -> GroupRecord:
-        existing = await self.get_group(group_id)
-        if existing is None:
-            raise KeyError(group_id)
-        updated = existing.model_copy(update=patch.model_dump(exclude_unset=True))
-        try:
-            await self._conn.execute(
-                "UPDATE groups SET name = ?, member_server_ids = ?, allow = ?, deny = ? "
-                "WHERE id = ?",
-                (*_group_values(updated)[1:], group_id),
-            )
-            await self._conn.commit()
-        except sqlite3.IntegrityError as exc:
-            raise ValueError(f"A group named {updated.name!r} already exists.") from exc
+        async with self._write_lock:
+            existing = await self.get_group(group_id)
+            if existing is None:
+                raise KeyError(group_id)
+            updated = existing.model_copy(update=patch.model_dump(exclude_unset=True))
+            try:
+                await self._conn.execute(
+                    "UPDATE groups SET name = ?, member_server_ids = ?, allow = ?, deny = ? "
+                    "WHERE id = ?",
+                    (*_group_values(updated)[1:], group_id),
+                )
+                await self._conn.commit()
+            except sqlite3.IntegrityError as exc:
+                raise ValueError(f"A group named {updated.name!r} already exists.") from exc
         return updated
 
     async def delete_group(self, group_id: str) -> None:
-        cursor = await self._conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
-        await self._conn.commit()
+        async with self._write_lock:
+            cursor = await self._conn.execute("DELETE FROM groups WHERE id = ?", (group_id,))
+            await self._conn.commit()
         if cursor.rowcount == 0:
             raise KeyError(group_id)
 
     async def replace_catalog(self, tools: Sequence[CatalogTool]) -> None:
-        """Wipe and repopulate the catalog (and its FTS index) in one transaction."""
+        """Wipe and repopulate the catalog (and its FTS index).
+
+        The whole wipe/repopulate runs under the store's write lock, so a concurrent
+        admin write cannot commit a half-finished catalog on the shared connection.
+        """
         placeholders = ", ".join(["?"] * 10)
         rows = [_catalog_values(tool) for tool in tools]
-        await self._conn.execute("DELETE FROM catalog_tools")
-        if rows:
-            await self._conn.executemany(
-                f"INSERT INTO catalog_tools ({_CATALOG_COLUMNS}) VALUES ({placeholders})", rows
-            )
-        if self._fts_enabled:
-            await self._conn.execute("DELETE FROM catalog_fts")
-            if tools:
+        async with self._write_lock:
+            await self._conn.execute("DELETE FROM catalog_tools")
+            if rows:
                 await self._conn.executemany(
-                    "INSERT INTO catalog_fts (name, bare_name, description, tags) "
-                    "VALUES (?, ?, ?, ?)",
-                    [(t.name, t.bare_name, t.description or "", " ".join(t.tags)) for t in tools],
+                    f"INSERT INTO catalog_tools ({_CATALOG_COLUMNS}) VALUES ({placeholders})", rows
                 )
-        await self._conn.commit()
+            if self._fts_enabled:
+                await self._conn.execute("DELETE FROM catalog_fts")
+                if tools:
+                    await self._conn.executemany(
+                        "INSERT INTO catalog_fts (name, bare_name, description, tags) "
+                        "VALUES (?, ?, ?, ?)",
+                        [
+                            (t.name, t.bare_name, t.description or "", " ".join(t.tags))
+                            for t in tools
+                        ],
+                    )
+            await self._conn.commit()
 
     async def list_catalog(self) -> list[CatalogTool]:
         cursor = await self._conn.execute(
