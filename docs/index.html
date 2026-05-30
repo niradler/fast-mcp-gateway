@@ -29,6 +29,7 @@
       <a href="#architecture" class="btn btn-ghost btn-sm text-slate-600">Architecture</a>
       <a href="#quickstart" class="btn btn-ghost btn-sm text-slate-600">Quickstart</a>
       <a href="#hooks" class="btn btn-ghost btn-sm text-slate-600">Hooks</a>
+      <a href="#plugins" class="btn btn-ghost btn-sm text-slate-600">Plugins</a>
       <a href="https://github.com/niradler/fast-mcp-gateway" class="btn btn-neutral btn-sm">GitHub →</a>
     </div>
   </div>
@@ -184,9 +185,9 @@
       </div>
 
       <div class="rounded-2xl border border-slate-200 bg-slate-50/50 p-6 hover:shadow-sm transition-shadow">
-        <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center text-lg mb-3">✓</div>
-        <h3 class="font-semibold text-slate-900 mb-1.5">Typed throughout</h3>
-        <p class="text-sm text-slate-600"><span class="font-mono text-xs">mypy --strict</span>, <span class="font-mono text-xs">py.typed</span>, full type hints on every param and return. Python 3.11+.</p>
+        <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center text-lg mb-3">↻</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Hot reload</h3>
+        <p class="text-sm text-slate-600">Register or change servers in the store, then call <span class="font-mono text-xs">reload()</span> (or <span class="font-mono text-xs">POST /admin/reload</span>): the gateway rebuilds its proxy mounts from the registry, no restart.</p>
       </div>
 
     </div>
@@ -201,6 +202,23 @@
       <p class="text-slate-500 max-w-2xl mx-auto text-sm">
         The gateway is a parent FastMCP server that proxies each registered upstream under a namespace, exposed as an ASGI app you mount onto your own FastAPI app alongside an admin router for CRUD.
       </p>
+    </div>
+    <div class="relative border border-slate-200 rounded-xl bg-white p-3 mb-6" data-diagram>
+      <button class="absolute top-2 right-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 text-xs font-semibold border border-slate-200 transition-colors" data-expand data-title="Gateway architecture">⤢ Expand</button>
+      <div class="mermaid">
+flowchart TD
+  Client["Client / LLM"] --> App["FastAPI app"]
+  App --> Admin["/admin · CRUD servers, groups, reload"]
+  App --> Mcp["/mcp · gateway MCP server"]
+  App --> Grp["/mcp/g/{group} · scoped to one group"]
+  Mcp --> Hook["HookMiddleware + AccessPolicy"]
+  Hook --> Proxies["Namespaced proxy mounts + search meta-tools"]
+  Grp -.->|same MCP app, group scope| Hook
+  Admin -.->|writes registry| Store[(Store)]
+  Proxies --> GH["github upstream"]
+  Proxies --> SL["slack upstream"]
+  Proxies --> JR["jira upstream"]
+      </div>
     </div>
     <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 md:p-8">
       <div class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5 text-center">FastAPI app</div>
@@ -324,6 +342,25 @@ curl -X POST http://127.0.0.1:8000/admin/reload</code></pre>
         </tbody>
       </table>
     </div>
+    <div class="relative border border-slate-200 rounded-xl bg-white p-3 mb-6" data-diagram>
+      <button class="absolute top-2 right-2 inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 hover:text-slate-900 text-xs font-semibold border border-slate-200 transition-colors" data-expand data-title="Tool call through the hook pipeline">⤢ Expand</button>
+      <div class="mermaid">
+sequenceDiagram
+  participant C as Client
+  participant G as Gateway
+  participant H as Confirmation hook
+  participant U as Upstream MCP server
+  C->>G: call_tool
+  Note over G: pre_tool_call runs<br/>continue / mutate args / deny / REQUIRE_CONFIRMATION
+  G->>H: REQUIRE_CONFIRMATION
+  Note over H: human approval<br/>reject or none registered = denied
+  H-->>G: approved
+  G->>U: forward call (on continue)
+  U-->>G: result
+  Note over G: post_tool_call runs
+  G-->>C: final result
+      </div>
+    </div>
     <div class="grid lg:grid-cols-2 gap-6 items-start">
       <pre><code class="language-python">from mcp_gateway import Hooks, ToolCallResult, ToolDecision
 
@@ -359,6 +396,115 @@ hooks = Hooks(pre_tool_call=[block_deletes], confirmation=[approve])</code></pre
         </div>
       </div>
     </div>
+  </div>
+</section>
+
+<!-- ========== PLUGINS ========== -->
+<section id="plugins" class="py-16 px-4 bg-white border-y border-slate-200">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-10">
+      <h2 class="text-3xl font-bold mb-3 text-slate-900">Plugins bundle the cross-cutting stuff</h2>
+      <p class="text-slate-500 max-w-2xl mx-auto text-sm">Where a hook is one function, a plugin is a named bundle of extensions applied at <span class="font-mono text-xs">create_gateway</span> time. One plugin can contribute hooks and middleware and routes and tools at once.</p>
+    </div>
+
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-8">
+      <div class="rounded-xl border border-blue-200 bg-blue-50 p-4">
+        <div class="text-xs font-semibold text-blue-700 uppercase tracking-widest mb-1">Hooks</div>
+        <p class="text-sm text-slate-700">Functions merged into the gateway hook chain, all five seams.</p>
+      </div>
+      <div class="rounded-xl border border-violet-200 bg-violet-50 p-4">
+        <div class="text-xs font-semibold text-violet-700 uppercase tracking-widest mb-1">FastMCP middleware</div>
+        <p class="text-sm text-slate-700">Around-the-call control like circuit breaking or retry that wraps execution itself.</p>
+      </div>
+      <div class="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <div class="text-xs font-semibold text-emerald-700 uppercase tracking-widest mb-1">Admin router</div>
+        <p class="text-sm text-slate-700">An <span class="font-mono text-xs">APIRouter</span> mounted under the admin prefix for the plugin.</p>
+      </div>
+      <div class="rounded-xl border border-amber-200 bg-amber-50 p-4">
+        <div class="text-xs font-semibold text-amber-700 uppercase tracking-widest mb-1">ASGI mounts</div>
+        <p class="text-sm text-slate-700"><span class="font-mono text-xs">(path, app)</span> sub-apps mounted on the MCP ASGI app, e.g. a governance HTTP API.</p>
+      </div>
+      <div class="rounded-xl border border-rose-200 bg-rose-50 p-4">
+        <div class="text-xs font-semibold text-rose-700 uppercase tracking-widest mb-1">Meta-tools</div>
+        <p class="text-sm text-slate-700">Register extra tools on the parent <span class="font-mono text-xs">FastMCP</span> server.</p>
+      </div>
+      <div class="rounded-xl border border-slate-300 bg-slate-100 p-4">
+        <div class="text-xs font-semibold text-slate-600 uppercase tracking-widest mb-1">Lifecycle</div>
+        <p class="text-sm text-slate-700">Async <span class="font-mono text-xs">setup</span> / <span class="font-mono text-xs">teardown</span> bound to the gateway lifespan.</p>
+      </div>
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-6 items-start mb-6">
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">The Plugin protocol</div>
+        <p class="text-sm text-slate-600 mb-3">A plugin implements a <span class="font-mono text-xs">name</span>, a <span class="font-mono text-xs">contributions(context)</span> method returning <span class="font-mono text-xs">PluginContributions</span>, and optional <span class="font-mono text-xs">setup</span> / <span class="font-mono text-xs">teardown</span> coroutines. The <span class="font-mono text-xs">GatewayContext</span> it receives exposes the <span class="font-mono text-xs">store</span>, the parent <span class="font-mono text-xs">mcp</span>, and a <span class="font-mono text-xs">reload</span> callable.</p>
+      </div>
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Pass plugins at create time</div>
+        <pre><code class="language-python">from mcp_gateway import create_gateway, SqliteStore
+
+gateway = create_gateway(
+    store=SqliteStore("gateway.db"),
+    plugins=[MyAuditPlugin(), MyRateLimitPlugin()],
+)</code></pre>
+      </div>
+    </div>
+
+    <!-- agent-os subsection -->
+    <div class="rounded-2xl border border-violet-200 bg-violet-50/40 p-6 md:p-8">
+      <div class="flex flex-wrap items-center gap-2 mb-2">
+        <span class="px-2.5 py-1 rounded-full bg-violet-100 border border-violet-200 text-violet-700 text-xs font-mono font-semibold">optional</span>
+        <h3 class="text-xl font-bold text-slate-900">The agent-os policy plugin</h3>
+      </div>
+      <p class="text-sm text-slate-600 max-w-3xl mb-5">The <span class="font-mono text-xs">agt</span> extra wires Microsoft's agent-governance-toolkit (agent-os) in as <span class="font-mono text-xs">AgtAgentOsPlugin</span>. Its core capability is the policy engine: it evaluates policy for every tool call (scoped to the active group) and denies calls the policy rejects. Everything else is an opt-in toggle on <span class="font-mono text-xs">AgtAgentOsSettings</span>, which reuses agent-os config types <span class="font-mono text-xs">DetectionConfig</span> / <span class="font-mono text-xs">IntentCategory</span> / <span class="font-mono text-xs">EgressRule</span>.</p>
+
+      <div class="overflow-x-auto rounded-xl bg-white border border-slate-200 shadow-sm mb-6">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 text-slate-600">
+            <tr>
+              <th class="text-left py-2.5 px-4 font-semibold">Toggle</th>
+              <th class="text-left py-2.5 px-4 font-semibold">Seam</th>
+              <th class="text-left py-2.5 px-4 font-semibold">Effect</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr><td class="py-3 px-4 font-mono text-xs text-violet-700">enable_prompt_injection</td><td class="py-3 px-4 font-mono text-xs text-slate-500">pre_tool_call</td><td class="py-3 px-4 text-slate-600">deny calls whose arguments look like prompt injection</td></tr>
+            <tr><td class="py-3 px-4 font-mono text-xs text-violet-700">enable_semantic_policy <span class="text-slate-400">(+ semantic_deny)</span></td><td class="py-3 px-4 font-mono text-xs text-slate-500">pre_tool_call</td><td class="py-3 px-4 text-slate-600">deny calls whose classified intent is dangerous</td></tr>
+            <tr><td class="py-3 px-4 font-mono text-xs text-violet-700">enable_response_scan</td><td class="py-3 px-4 font-mono text-xs text-slate-500">post_tool_call</td><td class="py-3 px-4 text-slate-600">block responses flagged unsafe (credential / PII / threat)</td></tr>
+            <tr><td class="py-3 px-4 font-mono text-xs text-violet-700">enable_credential_redaction</td><td class="py-3 px-4 font-mono text-xs text-slate-500">post_tool_call</td><td class="py-3 px-4 text-slate-600">redact secrets / PII out of responses</td></tr>
+            <tr><td class="py-3 px-4 font-mono text-xs text-violet-700">enable_egress_policy <span class="text-slate-400">(+ egress_rules)</span></td><td class="py-3 px-4 font-mono text-xs text-slate-500">pre_mcp_connect</td><td class="py-3 px-4 text-slate-600">refuse upstreams whose URL is outside the allowlist</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid lg:grid-cols-2 gap-6 items-start">
+        <div>
+          <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Install</div>
+          <pre><code class="language-bash">pip install "fast-mcp-gateway[agt]"</code></pre>
+        </div>
+        <div>
+          <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Enable the toggles you want</div>
+          <pre><code class="language-python">from mcp_gateway import create_gateway, SqliteStore
+from mcp_gateway.integrations.agt import AgtAgentOsPlugin, AgtAgentOsSettings
+
+gateway = create_gateway(
+    store=SqliteStore("gateway.db"),
+    plugins=[
+        AgtAgentOsPlugin(
+            AgtAgentOsSettings(
+                policy_dir="./policies",
+                fail_closed=True,
+                enable_prompt_injection=True,
+                enable_response_scan=True,
+                enable_credential_redaction=True,
+            )
+        )
+    ],
+)</code></pre>
+        </div>
+      </div>
+    </div>
+
   </div>
 </section>
 
