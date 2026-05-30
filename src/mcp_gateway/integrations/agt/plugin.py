@@ -11,7 +11,7 @@ registry lookups are needed.
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from mcp_gateway.access import current_group
 from mcp_gateway.hooks import (
@@ -34,7 +34,9 @@ from mcp_gateway.integrations.agt.settings import AgtAgentOsSettings
 from mcp_gateway.plugins import PluginContributions
 
 if TYPE_CHECKING:
+    import mcp.types as mt
     from agent_os.policies import AsyncPolicyEvaluator
+    from fastmcp.server.middleware import MiddlewareContext
 
     from mcp_gateway.plugins import GatewayContext
 
@@ -59,8 +61,6 @@ class AgtAgentOsPlugin:
         self._evaluator = None
 
     def contributions(self, context: GatewayContext) -> PluginContributions:
-        if self._evaluator is None:
-            self._evaluator = build_evaluator(self._settings)
         settings = self._settings
 
         pre: list[PreToolCallHook] = []
@@ -87,7 +87,9 @@ class AgtAgentOsPlugin:
     def _make_enforce_hook(self) -> PreToolCallHook:
         settings = self._settings
 
-        async def enforce_policy(ctx: Any) -> ToolCallResult | None:
+        async def enforce_policy(
+            ctx: MiddlewareContext[mt.CallToolRequestParams],
+        ) -> ToolCallResult | None:
             evaluator = self._evaluator
             if evaluator is None:
                 evaluator = self._evaluator = build_evaluator(settings)
@@ -99,7 +101,7 @@ class AgtAgentOsPlugin:
                 "resource": tool_name,
                 "tool": tool_name,
                 "group": group or "",
-                "arguments": getattr(ctx.message, "arguments", None) or {},
+                "arguments": ctx.message.arguments or {},
             }
             try:
                 decision = await evaluator.evaluate(eval_context)

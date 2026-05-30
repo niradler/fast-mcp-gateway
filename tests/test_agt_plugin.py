@@ -276,7 +276,12 @@ async def test_prompt_injection_blocked_end_to_end() -> None:
     store = SqliteStore(":memory:")
     await store.initialize()
     gateway = create_gateway(
-        store, plugins=[AgtAgentOsPlugin(AgtAgentOsSettings(enable_prompt_injection=True))]
+        store,
+        plugins=[
+            AgtAgentOsPlugin(
+                AgtAgentOsSettings(enable_prompt_injection=True, allow_no_policies=True)
+            )
+        ],
     )
 
     @gateway.mcp.tool
@@ -342,6 +347,7 @@ async def test_egress_blocks_connection_end_to_end() -> None:
     plugin = AgtAgentOsPlugin(
         AgtAgentOsSettings(
             enable_egress_policy=True,
+            allow_no_policies=True,
             egress_rules=[EgressRule(domain="api.github.com", ports=[443], action="allow")],
         )
     )
@@ -370,7 +376,12 @@ async def test_credential_redaction_end_to_end() -> None:
     store = SqliteStore(":memory:")
     await store.initialize()
     gateway = create_gateway(
-        store, plugins=[AgtAgentOsPlugin(AgtAgentOsSettings(enable_credential_redaction=True))]
+        store,
+        plugins=[
+            AgtAgentOsPlugin(
+                AgtAgentOsSettings(enable_credential_redaction=True, allow_no_policies=True)
+            )
+        ],
     )
 
     @gateway.mcp.tool
