@@ -31,7 +31,7 @@ from mcp_gateway.hooks import (
     ToolCallResult,
     ToolDecision,
 )
-from mcp_gateway.integrations.agt.settings import AgtAgentOsSettings
+from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
 
 def _args_text(arguments: dict[str, Any] | None) -> str:

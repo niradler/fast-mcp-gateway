@@ -25,29 +25,29 @@ from mcp_gateway.hooks import (
     ToolCallResult,
     ToolDecision,
 )
-from mcp_gateway.integrations.agt.detectors import (
+from mcp_gateway.plugins import PluginContributions
+from mcp_gateway.plugins.agentos.detectors import (
     make_credential_redaction_hook,
     make_egress_hook,
     make_prompt_injection_hook,
     make_response_scan_hook,
     make_semantic_policy_hook,
 )
-from mcp_gateway.integrations.agt.policy import build_evaluator
-from mcp_gateway.integrations.agt.settings import AgtAgentOsSettings
-from mcp_gateway.plugins import PluginContributions
+from mcp_gateway.plugins.agentos.policy import build_evaluator
+from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
 if TYPE_CHECKING:
     from agent_os.policies import AsyncPolicyEvaluator
 
     from mcp_gateway.plugins import GatewayContext
 
-_logger = logging.getLogger("mcp_gateway.integrations.agt")
+_logger = logging.getLogger("mcp_gateway.plugins.agentos")
 
 
 class AgtAgentOsPlugin:
     """Evaluate agent-os policy on every tool call; deny calls the policy rejects."""
 
-    name = "agt"
+    name = "agentos"
 
     def __init__(self, settings: AgtAgentOsSettings) -> None:
         self._settings = settings

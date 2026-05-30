@@ -7,9 +7,9 @@ from pathlib import Path
 
 from agent_os.policies import AsyncPolicyEvaluator, PolicyEvaluator
 
-from mcp_gateway.integrations.agt.settings import AgtAgentOsSettings
+from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
-_logger = logging.getLogger("mcp_gateway.integrations.agt")
+_logger = logging.getLogger("mcp_gateway.plugins.agentos")
 
 
 def build_evaluator(settings: AgtAgentOsSettings) -> AsyncPolicyEvaluator:

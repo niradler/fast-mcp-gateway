@@ -485,7 +485,7 @@ gateway = create_gateway(
         <div>
           <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Enable the toggles you want</div>
           <pre><code class="language-python">from mcp_gateway import create_gateway, SqliteStore
-from mcp_gateway.integrations.agt import AgtAgentOsPlugin, AgtAgentOsSettings
+from mcp_gateway.plugins.agentos import AgtAgentOsPlugin, AgtAgentOsSettings
 
 gateway = create_gateway(
     store=SqliteStore("gateway.db"),

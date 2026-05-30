@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class AgtAgentOsSettings:
-    """Tunables for :class:`~mcp_gateway.integrations.agt.plugin.AgtAgentOsPlugin`.
+    """Tunables for :class:`~mcp_gateway.plugins.agentos.plugin.AgtAgentOsPlugin`.
 
     Capabilities beyond the always-on policy engine are opt-in via ``enable_*`` toggles,
     each paired with its agent-os config object so nothing is re-modelled here.

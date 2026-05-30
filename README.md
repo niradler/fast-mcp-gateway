@@ -251,7 +251,7 @@ uv add "fast-mcp-gateway[agt]"   # from within a uv project — honors the git s
 
 ```python
 from mcp_gateway import create_gateway, SqliteStore
-from mcp_gateway.integrations.agt import AgtAgentOsPlugin, AgtAgentOsSettings
+from mcp_gateway.plugins.agentos import AgtAgentOsPlugin, AgtAgentOsSettings
 
 gateway = create_gateway(
     store=SqliteStore("gateway.db"),

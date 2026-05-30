@@ -6,7 +6,7 @@ resolve it until ``agent-os-kernel`` (being consolidated into ``agent-governance
 is published to PyPI.
 """
 
-from mcp_gateway.integrations.agt.plugin import AgtAgentOsPlugin
-from mcp_gateway.integrations.agt.settings import AgtAgentOsSettings
+from mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
+from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
 __all__ = ["AgtAgentOsPlugin", "AgtAgentOsSettings"]
