@@ -12,6 +12,9 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+_SERVER_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9-]*$"
+_GROUP_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]*$"
+
 
 class Transport(StrEnum):
     """Transport used to reach an upstream MCP server. The gateway proxies remote
@@ -24,12 +27,23 @@ class Transport(StrEnum):
 class ServerBase(BaseModel):
     """Fields common to creating and reading a server record."""
 
-    name: str = Field(description="Unique name; also used as the mount namespace/prefix.")
+    name: str = Field(
+        min_length=1,
+        pattern=_SERVER_NAME_PATTERN,
+        description=(
+            "Unique name; also used as the mount namespace/prefix. Letters, digits and "
+            "hyphens only — no underscore (it is the namespace/tool-name separator)."
+        ),
+    )
     transport: Transport = Field(default=Transport.HTTP)
     url: str = Field(description="Endpoint URL for the upstream MCP server.")
     static_headers: dict[str, str] = Field(
         default_factory=dict,
-        description="Headers always sent upstream; merged under hook-provided headers.",
+        description=(
+            "Non-secret headers always sent upstream; merged under hook-provided headers. "
+            "Stored in plaintext and returned by the admin read API — keep real credentials "
+            "out of here and inject them from a pre_mcp_connect hook instead."
+        ),
     )
     allow: list[str] = Field(
         default_factory=list, description="Glob patterns of tool names to expose (empty = all)."
@@ -49,7 +63,7 @@ class ServerCreate(ServerBase):
 class ServerPatch(BaseModel):
     """Partial update for an existing server; unset fields are left unchanged."""
 
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1, pattern=_SERVER_NAME_PATTERN)
     transport: Transport | None = None
     url: str | None = None
     static_headers: dict[str, str] | None = None
@@ -69,7 +83,11 @@ class ServerRecord(ServerBase):
 class GroupBase(BaseModel):
     """Fields common to creating and reading a group."""
 
-    name: str
+    name: str = Field(
+        min_length=1,
+        pattern=_GROUP_NAME_PATTERN,
+        description="Unique group name; used in the /mcp/g/{group} route and as the policy key.",
+    )
     member_server_ids: list[str] = Field(default_factory=list)
     allow: list[str] = Field(default_factory=list, description="Group-level allow overrides.")
     deny: list[str] = Field(default_factory=list, description="Group-level deny overrides.")
@@ -82,7 +100,7 @@ class GroupCreate(GroupBase):
 class GroupPatch(BaseModel):
     """Partial update for a group; unset fields are left unchanged."""
 
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1, pattern=_GROUP_NAME_PATTERN)
     member_server_ids: list[str] | None = None
     allow: list[str] | None = None
     deny: list[str] | None = None
