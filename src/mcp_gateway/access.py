@@ -5,8 +5,9 @@ are visible and callable.  Rules are pre-compiled once per ``rebuild()`` call
 so the per-request path is only dict lookups and ``fnmatch.fnmatchcase`` — no
 I/O, no store access, no recompilation.
 
-``current_group`` is a context variable that M3c will set per-request to scope
-enforcement to a specific group.  In this milestone it is always ``None``.
+``current_group`` is a context variable set per request by the group-scoped MCP
+mount (:class:`mcp_gateway.routing.GroupDispatch`); when unset (the full ``/mcp``
+endpoint) it is ``None`` and no group scoping is applied.
 
 Non-namespaced tools (names that do not match any registered server namespace)
 are always allowed.  This covers gateway-local meta-tools such as

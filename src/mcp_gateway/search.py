@@ -10,6 +10,10 @@ maintains, so they never fan out to upstreams. Results are scoped to the caller'
 view: the access policy's allow/deny and the request's group are applied on top of
 the raw matches, and a denied or out-of-scope tool simply reads as "not found"
 (no existence leak).
+
+Allow/deny is applied after ranking the top ``_CANDIDATE_CAP`` catalog matches, so a
+heavily restricted caller in a very large fleet may miss allowed tools that rank below
+the cap; push scoping into the catalog query if that ever bites.
 """
 
 from __future__ import annotations
