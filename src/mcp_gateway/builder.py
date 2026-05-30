@@ -56,6 +56,10 @@ class GatewayBuilder:
         Serialized so concurrent reloads (e.g. a ``POST /admin/reload`` racing a
         plugin-triggered one) cannot interleave their store reads, provider mutation,
         and catalog replacement and leave the gateway in a mixed state.
+
+        The catalog is rewritten in place, so a ``tools/list`` / ``search_tools`` request
+        that lands during the brief rewrite may see a partial catalog (and therefore a
+        partial group-scoped view); it is transient and a retry returns the full set.
         """
         async with self._reload_lock:
             servers = await self.store.list_servers()
