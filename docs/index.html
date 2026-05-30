@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="corporate" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>fast-mcp-gateway — one governed MCP endpoint</title>
+  <meta name="description" content="A lean Python package that mounts on FastAPI and turns a registry of upstream MCP servers into one governed, namespaced MCP endpoint.">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <style>
+    .mermaid { display: flex; justify-content: center; padding: 0.5rem 0; }
+    .mermaid svg { max-width: 100%; height: auto; }
+    #diagram-modal-body svg { width: 100%; height: auto; max-height: 80vh; }
+    section { scroll-margin-top: 4rem; }
+    pre code.hljs { border-radius: 0.75rem; padding: 1.25rem; font-size: 0.8rem; line-height: 1.6; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans antialiased">
+
+<nav class="navbar bg-white/95 backdrop-blur border-b border-slate-200 sticky top-0 z-50">
+  <div class="max-w-6xl mx-auto w-full px-4 flex items-center justify-between">
+    <a href="#top" class="text-lg font-mono font-bold tracking-tight text-slate-900">fast-mcp-gateway</a>
+    <div class="hidden md:flex items-center gap-1">
+      <a href="#why" class="btn btn-ghost btn-sm text-slate-600">Why</a>
+      <a href="#features" class="btn btn-ghost btn-sm text-slate-600">Features</a>
+      <a href="#architecture" class="btn btn-ghost btn-sm text-slate-600">Architecture</a>
+      <a href="#quickstart" class="btn btn-ghost btn-sm text-slate-600">Quickstart</a>
+      <a href="#hooks" class="btn btn-ghost btn-sm text-slate-600">Hooks</a>
+      <a href="#roadmap" class="btn btn-ghost btn-sm text-slate-600">Roadmap</a>
+      <a href="https://github.com/niradler/fast-mcp-gateway" class="btn btn-neutral btn-sm">GitHub →</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ========== HERO ========== -->
+<section id="top" class="text-slate-100 pt-20 pb-20 px-4" style="background: radial-gradient(at 20% 0%, rgba(59,130,246,0.18) 0%, transparent 50%), radial-gradient(at 90% 30%, rgba(139,92,246,0.15) 0%, transparent 50%), linear-gradient(180deg, #0f172a 0%, #1e293b 100%);">
+  <div class="max-w-6xl mx-auto">
+    <div class="max-w-3xl">
+      <div class="inline-flex items-center gap-2 mb-6 px-3 py-1 rounded-full bg-amber-400/10 border border-amber-400/30 text-amber-300 text-xs font-mono">
+        <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+        Alpha · under active development
+      </div>
+      <h1 class="text-5xl sm:text-6xl font-bold mb-4 tracking-tight leading-tight">
+        Many MCP servers,<br><span class="text-blue-400">one governed endpoint</span>
+      </h1>
+      <p class="text-slate-300 mb-8 text-lg leading-relaxed max-w-2xl">
+        A lean Python package that mounts on <span class="text-slate-100 font-medium">FastAPI</span> and turns a registry of
+        upstream <span class="text-slate-100 font-medium">MCP servers</span> into one governed, namespaced MCP endpoint. The
+        core stays thin; auth, policy, human-in-the-loop, redaction, audit, and cost limits are all
+        <span class="text-violet-300 font-medium">hook functions</span> you pass at mount time.
+      </p>
+      <div class="flex flex-wrap items-center gap-3 mb-10">
+        <a href="#quickstart" class="btn btn-primary btn-md border-0 bg-blue-500 hover:bg-blue-400 text-white">Get started</a>
+        <a href="https://github.com/niradler/fast-mcp-gateway" class="btn btn-md bg-white/10 hover:bg-white/20 border border-white/20 text-slate-100">View on GitHub</a>
+      </div>
+      <div class="bg-slate-900/60 border border-white/10 rounded-xl p-4 font-mono text-sm inline-flex items-center gap-3 max-w-full overflow-x-auto">
+        <span class="text-slate-500 select-none shrink-0">$</span>
+        <span class="text-emerald-400 whitespace-nowrap">uv add fast-mcp-gateway</span>
+        <span class="text-slate-600 select-none">·</span>
+        <span class="text-slate-400 whitespace-nowrap">pip install fast-mcp-gateway</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== FLOW STRIP ========== -->
+<section class="bg-white border-b border-slate-200 py-8 px-4">
+  <div class="max-w-6xl mx-auto">
+    <div class="flex flex-col md:flex-row items-stretch gap-3 text-center">
+      <div class="flex-1 rounded-xl border border-slate-200 bg-slate-50 p-5">
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">Many upstreams</div>
+        <div class="font-mono text-sm text-slate-700">github · slack · jira · …</div>
+      </div>
+      <div class="flex items-center justify-center text-2xl text-blue-400 font-bold rotate-90 md:rotate-0">→</div>
+      <div class="flex-1 rounded-xl border-2 border-blue-500 bg-blue-50 p-5">
+        <div class="text-xs font-semibold text-blue-600 uppercase tracking-widest mb-1">fast-mcp-gateway</div>
+        <div class="font-mono text-sm text-blue-800">namespaced + filtered + policy-checked</div>
+      </div>
+      <div class="flex items-center justify-center text-2xl text-blue-400 font-bold rotate-90 md:rotate-0">→</div>
+      <div class="flex-1 rounded-xl border border-slate-200 bg-slate-50 p-5">
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">One endpoint</div>
+        <div class="font-mono text-sm text-slate-700">/mcp</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== WHY ========== -->
+<section id="why" class="py-16 px-4">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-10">
+      <h2 class="text-3xl font-bold mb-3 text-slate-900">Why a gateway</h2>
+      <p class="text-slate-500 max-w-2xl mx-auto text-sm">Point an LLM at a dozen MCP servers directly and you get a dozen of every problem. The gateway puts one endpoint in front of them all.</p>
+    </div>
+    <div class="grid md:grid-cols-2 gap-6 items-stretch">
+      <div class="rounded-2xl border border-red-200 bg-red-50/60 p-6">
+        <div class="flex items-center gap-2 mb-4">
+          <span class="text-red-600 text-lg">✕</span>
+          <h3 class="font-semibold text-red-900">Direct: a dozen of everything</h3>
+        </div>
+        <ul class="space-y-2.5 text-sm text-slate-700">
+          <li class="flex gap-2"><span class="text-red-400">—</span> A dozen connections to manage</li>
+          <li class="flex gap-2"><span class="text-red-400">—</span> A dozen auth schemes</li>
+          <li class="flex gap-2"><span class="text-red-400">—</span> No namespacing, colliding tool names</li>
+          <li class="flex gap-2"><span class="text-red-400">—</span> No central policy or audit</li>
+          <li class="flex gap-2"><span class="text-red-400">—</span> No way to hide a dangerous tool</li>
+        </ul>
+      </div>
+      <div class="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-6">
+        <div class="flex items-center gap-2 mb-4">
+          <span class="text-emerald-600 text-lg">✓</span>
+          <h3 class="font-semibold text-emerald-900">Through the gateway</h3>
+        </div>
+        <ul class="space-y-2.5 text-sm text-slate-700">
+          <li class="flex gap-2"><span class="text-emerald-500">+</span> <span><span class="font-medium">One connection, many servers</span> — each proxied under its own namespace (<span class="font-mono text-xs">github_*</span>, <span class="font-mono text-xs">slack_*</span>)</span></li>
+          <li class="flex gap-2"><span class="text-emerald-500">+</span> <span><span class="font-medium">Governed</span> — filter tools, gate calls, redact results, audit everything, all as hooks</span></li>
+          <li class="flex gap-2"><span class="text-emerald-500">+</span> <span><span class="font-medium">Reuse, don't rebuild</span> — FastMCP does proxying and transport bridging; we add the registry, groups, builder, and hook runner</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== FEATURES ========== -->
+<section id="features" class="py-16 px-4 bg-white border-y border-slate-200">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-10">
+      <h2 class="text-3xl font-bold mb-3 text-slate-900">Features</h2>
+      <p class="text-slate-500 max-w-2xl mx-auto text-sm">Thin core, everything cross-cutting is a hook or a plugin.</p>
+    </div>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+
+      <div class="rounded-2xl border border-slate-200 bg-slate-50/50 p-6 hover:shadow-sm transition-shadow">
+        <div class="w-9 h-9 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center text-lg mb-3">▤</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Server registry (Store)</h3>
+        <p class="text-sm text-slate-600">Persistent CRUD over upstream MCP servers. Ships with a zero-setup <span class="font-mono text-xs">SqliteStore</span>, swappable for Postgres / Redis / in-memory via one protocol.</p>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-slate-50/50 p-6 hover:shadow-sm transition-shadow">
+        <div class="w-9 h-9 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center text-lg mb-3">⧉</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Namespaced proxying</h3>
+        <p class="text-sm text-slate-600">Each enabled server is mounted under its <span class="font-mono text-xs">name</span> as a prefix. <span class="font-mono text-xs">reload()</span> rebuilds the mounts from the registry.</p>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-slate-50/50 p-6 hover:shadow-sm transition-shadow">
+        <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center text-lg mb-3">⎇</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Five hook seams</h3>
+        <p class="text-sm text-slate-600"><span class="font-mono text-xs">pre_mcp_connect</span>, <span class="font-mono text-xs">pre_list_tools</span>, <span class="font-mono text-xs">pre_tool_call</span>, <span class="font-mono text-xs">confirmation</span>, <span class="font-mono text-xs">post_tool_call</span>. All plain async functions.</p>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-slate-50/50 p-6 hover:shadow-sm transition-shadow">
+        <div class="w-9 h-9 rounded-lg bg-amber-100 text-amber-600 flex items-center justify-center text-lg mb-3">⊘</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Access control</h3>
+        <p class="text-sm text-slate-600">Per-server and per-group <span class="font-medium">allow / deny</span> glob lists, enforced on both <span class="font-mono text-xs">list_tools</span> (hides) and <span class="font-mono text-xs">call_tool</span> (blocks).</p>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-slate-50/50 p-6 hover:shadow-sm transition-shadow">
+        <div class="w-9 h-9 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center text-lg mb-3">⊞</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Groups & scoped endpoints</h3>
+        <p class="text-sm text-slate-600">Expose a curated subset of servers/tools at <span class="font-mono text-xs">/mcp/g/{group}</span>, served by the same shared MCP app, no per-group duplication.</p>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-slate-50/50 p-6 hover:shadow-sm transition-shadow">
+        <div class="w-9 h-9 rounded-lg bg-blue-100 text-blue-600 flex items-center justify-center text-lg mb-3">◧</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Plugins</h3>
+        <p class="text-sm text-slate-600">Bundle hooks, FastMCP middleware, an admin router, ASGI mounts, and meta-tools into one named extension with <span class="font-mono text-xs">setup</span> / <span class="font-mono text-xs">teardown</span>.</p>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-slate-50/50 p-6 hover:shadow-sm transition-shadow">
+        <div class="w-9 h-9 rounded-lg bg-violet-100 text-violet-600 flex items-center justify-center text-lg mb-3">⚖</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Optional policy engine</h3>
+        <p class="text-sm text-slate-600">An <span class="font-mono text-xs">agt</span> extra wires Microsoft's agent-governance-toolkit (agent-os) in as a policy plugin: prompt-injection, semantic policy, response scan, egress.</p>
+      </div>
+
+      <div class="rounded-2xl border border-slate-200 bg-slate-50/50 p-6 hover:shadow-sm transition-shadow">
+        <div class="w-9 h-9 rounded-lg bg-emerald-100 text-emerald-600 flex items-center justify-center text-lg mb-3">✓</div>
+        <h3 class="font-semibold text-slate-900 mb-1.5">Typed throughout</h3>
+        <p class="text-sm text-slate-600"><span class="font-mono text-xs">mypy --strict</span>, <span class="font-mono text-xs">py.typed</span>, full type hints on every param and return. Python 3.11+.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ========== ARCHITECTURE ========== -->
+<section id="architecture" class="py-16 px-4">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-10">
+      <h2 class="text-3xl font-bold mb-3 text-slate-900">Architecture</h2>
+      <p class="text-slate-500 max-w-2xl mx-auto text-sm">
+        The gateway is a parent FastMCP server that proxies each registered upstream under a namespace, exposed as an ASGI app you mount onto your own FastAPI app alongside an admin router for CRUD.
+      </p>
+    </div>
+    <div class="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 md:p-8">
+      <div class="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-5 text-center">FastAPI app</div>
+      <div class="grid lg:grid-cols-3 gap-5">
+
+        <div class="border-2 border-violet-500 bg-violet-50 rounded-xl p-5">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold text-violet-700 uppercase tracking-widest font-mono">/admin</span>
+            <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">we build</span>
+          </div>
+          <p class="text-sm text-slate-700">APIRouter for CRUD: servers, groups, and <span class="font-mono text-xs">reload</span>. Writes to the Store.</p>
+        </div>
+
+        <div class="border-2 border-blue-500 bg-blue-50 rounded-xl p-5">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold text-blue-700 uppercase tracking-widest font-mono">/mcp</span>
+            <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">FastMCP</span>
+          </div>
+          <p class="text-sm text-slate-700 mb-3">The gateway MCP server, all enabled servers and every permitted tool.</p>
+          <div class="space-y-1.5 text-xs font-mono text-slate-600">
+            <div class="bg-white/70 rounded px-2 py-1 border border-blue-100">mount(proxy_github, ns="github")</div>
+            <div class="bg-white/70 rounded px-2 py-1 border border-blue-100">mount(proxy_slack, ns="slack")</div>
+            <div class="bg-white/70 rounded px-2 py-1 border border-blue-100">+ HookMiddleware + meta-tools</div>
+          </div>
+        </div>
+
+        <div class="border-2 border-emerald-500 bg-emerald-50 rounded-xl p-5">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-xs font-semibold text-emerald-700 uppercase tracking-widest font-mono">/mcp/g/{grp}</span>
+            <span class="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-medium">we build</span>
+          </div>
+          <p class="text-sm text-slate-700">Same MCP app, scoped to one group's servers and tools, with the group's allow/deny applied on top.</p>
+        </div>
+
+      </div>
+      <p class="text-xs text-slate-400 text-center mt-6">A <span class="font-mono">HookMiddleware</span> and an <span class="font-mono">AccessPolicy</span> wrap every <span class="font-mono">list_tools</span> / <span class="font-mono">call_tool</span> request.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ========== QUICKSTART ========== -->
+<section id="quickstart" class="py-16 px-4 bg-white border-y border-slate-200">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-10">
+      <h2 class="text-3xl font-bold mb-3 text-slate-900">Quickstart</h2>
+      <p class="text-slate-500 max-w-2xl mx-auto text-sm">Create a gateway, mount it on FastAPI, register an upstream, reload.</p>
+    </div>
+    <div class="grid lg:grid-cols-2 gap-6">
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">1 · Mount the gateway</div>
+        <pre><code class="language-python">import os
+from fastapi import FastAPI
+from mcp_gateway import (
+    ConnectContext, ConnectSettings, Hooks, SqliteStore, create_gateway,
+)
+
+
+async def inject_auth(ctx: ConnectContext) -> ConnectSettings | None:
+    # Auth is just a hook: headers merged over the server's static headers.
+    if ctx.server.name == "github":
+        token = os.environ["GH_TOKEN"]
+        return ConnectSettings(headers={"Authorization": f"Bearer {token}"})
+    return None
+
+
+gateway = create_gateway(
+    store=SqliteStore("gateway.db"),
+    hooks=Hooks(pre_mcp_connect=[inject_auth]),
+)
+
+app = FastAPI(lifespan=gateway.lifespan)
+gateway.install(app)   # mounts /admin (CRUD) and /mcp (MCP endpoint)</code></pre>
+      </div>
+      <div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">2 · Register an upstream, then reload</div>
+        <pre><code class="language-bash">curl -X POST http://127.0.0.1:8000/admin/servers \
+  -H 'content-type: application/json' \
+  -d '{"name": "math",
+       "url": "http://127.0.0.1:9000/mcp/",
+       "transport": "http"}'
+
+curl -X POST http://127.0.0.1:8000/admin/reload</code></pre>
+        <div class="rounded-lg border-l-4 border-emerald-500 bg-emerald-50 p-4 flex items-start gap-3 mt-4">
+          <div class="text-emerald-600 text-xl">✓</div>
+          <div>
+            <div class="font-semibold text-emerald-900 text-sm">Done</div>
+            <div class="text-sm text-emerald-900/70">The upstream's tools now appear at the gateway under the <span class="font-mono text-xs">math_</span> namespace.</div>
+          </div>
+        </div>
+        <div class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2 mt-5">Or run the bundled example</div>
+        <pre><code class="language-bash">make run   # uvicorn examples.basic_app:app --reload
+# Admin + OpenAPI docs: http://127.0.0.1:8000/docs
+# MCP endpoint:         http://127.0.0.1:8000/mcp/</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== HOOKS ========== -->
+<section id="hooks" class="py-16 px-4">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-10">
+      <h2 class="text-3xl font-bold mb-3 text-slate-900">Everything is a hook</h2>
+      <p class="text-slate-500 max-w-2xl mx-auto text-sm">A hook is an async function in a <span class="font-mono text-xs">Hooks</span> container, passed at mount time. Each binds to the layer where it belongs and chains in registration order.</p>
+    </div>
+    <div class="overflow-x-auto rounded-xl bg-white border border-slate-200 shadow-sm mb-6">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-600">
+          <tr>
+            <th class="text-left py-2.5 px-4 font-semibold">Hook</th>
+            <th class="text-left py-2.5 px-4 font-semibold">Binds to</th>
+            <th class="text-left py-2.5 px-4 font-semibold">Runs</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr><td class="py-3 px-4 font-mono text-xs text-blue-700">pre_mcp_connect</td><td class="py-3 px-4 text-slate-600">proxy client factory</td><td class="py-3 px-4 text-slate-600">before opening an upstream session</td></tr>
+          <tr><td class="py-3 px-4 font-mono text-xs text-blue-700">pre_list_tools</td><td class="py-3 px-4 text-slate-600">HookMiddleware.on_list_tools</td><td class="py-3 px-4 text-slate-600">on catalog requests</td></tr>
+          <tr><td class="py-3 px-4 font-mono text-xs text-blue-700">pre_tool_call</td><td class="py-3 px-4 text-slate-600">on_call_tool (pre)</td><td class="py-3 px-4 text-slate-600">before forwarding a call</td></tr>
+          <tr><td class="py-3 px-4 font-mono text-xs text-blue-700">confirmation</td><td class="py-3 px-4 text-slate-600">on_call_tool (when REQUIRE_CONFIRMATION)</td><td class="py-3 px-4 text-slate-600">human-in-the-loop approval</td></tr>
+          <tr><td class="py-3 px-4 font-mono text-xs text-blue-700">post_tool_call</td><td class="py-3 px-4 text-slate-600">on_call_tool (post)</td><td class="py-3 px-4 text-slate-600">after the upstream result</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="grid lg:grid-cols-2 gap-6 items-start">
+      <pre><code class="language-python">from mcp_gateway import Hooks, ToolCallResult, ToolDecision
+
+
+async def block_deletes(ctx) -> ToolCallResult | None:
+    if ctx.message.name.endswith("_delete_all"):
+        return ToolCallResult(
+            decision=ToolDecision.REQUIRE_CONFIRMATION,
+            reason="destructive",
+        )
+    return None
+
+
+async def approve(ctx) -> bool:
+    return await ask_a_human(ctx.tool_name, ctx.arguments)
+
+
+hooks = Hooks(pre_tool_call=[block_deletes], confirmation=[approve])</code></pre>
+      <div class="space-y-3">
+        <div class="rounded-lg border-l-4 border-blue-500 bg-blue-50 p-4 flex items-start gap-3">
+          <div class="text-blue-600 text-xl">ℹ</div>
+          <div>
+            <div class="font-semibold text-blue-900 text-sm">Four outcomes per call</div>
+            <div class="text-sm text-blue-900/70">A <span class="font-mono text-xs">pre_tool_call</span> hook may <span class="font-medium">continue</span>, <span class="font-medium">mutate args</span>, <span class="font-medium">deny</span>, or return <span class="font-mono text-xs">REQUIRE_CONFIRMATION</span>, which triggers the confirmation hooks.</div>
+          </div>
+        </div>
+        <div class="rounded-lg border-l-4 border-amber-500 bg-amber-50 p-4 flex items-start gap-3">
+          <div class="text-amber-600 text-xl">⚠</div>
+          <div>
+            <div class="font-semibold text-amber-900 text-sm">Confirmation is fail-safe</div>
+            <div class="text-sm text-amber-900/70">If any confirmation hook rejects, or none is registered, the call is denied. Policy, guardrails, audit, and cost limits are all just hooks, nothing special in the core.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== ROADMAP ========== -->
+<section id="roadmap" class="py-16 px-4 bg-white border-y border-slate-200">
+  <div class="max-w-6xl mx-auto">
+    <div class="text-center mb-10">
+      <h2 class="text-3xl font-bold mb-3 text-slate-900">Roadmap</h2>
+      <p class="text-slate-500 max-w-2xl mx-auto text-sm">The registry, builder, full hook pipeline, groups, group-scoped endpoints, and the plugin system are implemented and tested.</p>
+    </div>
+    <div class="overflow-x-auto rounded-xl bg-white border border-slate-200 shadow-sm">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-slate-600">
+          <tr>
+            <th class="text-left py-2.5 px-4 font-semibold w-16">Phase</th>
+            <th class="text-left py-2.5 px-4 font-semibold">Deliverable</th>
+            <th class="text-left py-2.5 px-4 font-semibold w-32">Status</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          <tr><td class="py-3 px-4 font-mono text-xs text-slate-500">0</td><td class="py-3 px-4 text-slate-700">Package skeleton, Store protocol + SqliteStore, create_gateway()</td><td class="py-3 px-4"><span class="inline-block px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700">done</span></td></tr>
+          <tr><td class="py-3 px-4 font-mono text-xs text-slate-500">1</td><td class="py-3 px-4 text-slate-700">Server CRUD + builder + reload() + pre_mcp_connect</td><td class="py-3 px-4"><span class="inline-block px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700">done</span></td></tr>
+          <tr><td class="py-3 px-4 font-mono text-xs text-slate-500">2</td><td class="py-3 px-4 text-slate-700">HookMiddleware: pre_tool_call / post_tool_call / pre_list_tools</td><td class="py-3 px-4"><span class="inline-block px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700">done</span></td></tr>
+          <tr><td class="py-3 px-4 font-mono text-xs text-slate-500">3</td><td class="py-3 px-4 text-slate-700">Groups + per-server/group allow-deny + group-scoped endpoints</td><td class="py-3 px-4"><span class="inline-block px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700">done</span></td></tr>
+          <tr><td class="py-3 px-4 font-mono text-xs text-slate-500">—</td><td class="py-3 px-4 text-slate-700">Plugin system + agent-os policy integration</td><td class="py-3 px-4"><span class="inline-block px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700">done</span></td></tr>
+          <tr><td class="py-3 px-4 font-mono text-xs text-slate-500">4</td><td class="py-3 px-4 text-slate-700">search_tools / describe_tool meta-tools + catalog cache</td><td class="py-3 px-4"><span class="inline-block px-2 py-0.5 text-xs rounded-full bg-amber-100 text-amber-800">in progress</span></td></tr>
+          <tr><td class="py-3 px-4 font-mono text-xs text-slate-500">5</td><td class="py-3 px-4 text-slate-700">Reference hooks (audit, allow/deny, confirmation), docs, packaging</td><td class="py-3 px-4"><span class="inline-block px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-600">planned</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ========== CTA ========== -->
+<section class="py-16 px-4">
+  <div class="max-w-4xl mx-auto text-center">
+    <h2 class="text-3xl font-bold mb-3 text-slate-900">Get started</h2>
+    <p class="text-slate-500 mb-8 max-w-xl mx-auto text-sm">Install from PyPI, mount it on your FastAPI app, and register your first upstream.</p>
+    <div class="flex flex-wrap items-center justify-center gap-3">
+      <a href="https://github.com/niradler/fast-mcp-gateway" class="btn btn-neutral btn-md">GitHub</a>
+      <a href="https://github.com/niradler/fast-mcp-gateway/issues" class="btn btn-outline btn-md">Issues</a>
+      <a href="https://gofastmcp.com" class="btn btn-outline btn-md">FastMCP</a>
+    </div>
+  </div>
+</section>
+
+<!-- Diagram zoom modal -->
+<div id="diagram-modal" class="hidden fixed inset-0 z-[100] bg-slate-900/85 items-center justify-center p-8" role="dialog" aria-modal="true" aria-labelledby="diagram-modal-title">
+  <div class="bg-white rounded-xl w-full max-w-[95vw] max-h-[92vh] p-6 pb-4 flex flex-col shadow-2xl">
+    <div class="flex justify-between items-center mb-3 pb-3 border-b border-slate-200">
+      <div id="diagram-modal-title" class="font-semibold text-sm text-slate-700 uppercase tracking-wider">Diagram</div>
+      <button class="px-3 py-1.5 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold border border-slate-200" data-modal-close>Close (Esc)</button>
+    </div>
+    <div id="diagram-modal-body" class="flex-1 overflow-auto flex items-center justify-center"></div>
+  </div>
+</div>
+
+<footer class="bg-slate-900 text-slate-400 py-10 px-4 text-sm">
+  <div class="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+    <div class="font-mono text-slate-300">fast-mcp-gateway</div>
+    <div class="flex items-center gap-5">
+      <a href="https://github.com/niradler/fast-mcp-gateway" class="hover:text-blue-400">GitHub</a>
+      <a href="https://github.com/niradler/fast-mcp-gateway/issues" class="hover:text-blue-400">Issues</a>
+      <a href="https://gofastmcp.com" class="hover:text-blue-400">FastMCP</a>
+      <span class="text-slate-600">MIT licensed</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  if (window.mermaid) {
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'base',
+      themeVariables: {
+        primaryColor: '#EFF6FF',
+        primaryBorderColor: '#3B82F6',
+        primaryTextColor: '#1e3a8a',
+        lineColor: '#64748b',
+        secondaryColor: '#F5F3FF',
+        tertiaryColor: '#ECFDF5',
+        fontFamily: 'ui-sans-serif, system-ui, sans-serif',
+        fontSize: '15px'
+      }
+    });
+  }
+  if (window.hljs) hljs.highlightAll();
+
+  (function () {
+    const modal = document.getElementById('diagram-modal');
+    if (!modal) return;
+    const titleEl = document.getElementById('diagram-modal-title');
+    const body = document.getElementById('diagram-modal-body');
+    const clear = el => { while (el.firstChild) el.removeChild(el.firstChild); };
+    const open = (svg, title) => {
+      titleEl.textContent = title || 'Diagram';
+      clear(body);
+      const clone = svg.cloneNode(true);
+      clone.removeAttribute('style');
+      clone.setAttribute('width', '100%');
+      clone.setAttribute('height', 'auto');
+      body.appendChild(clone);
+      modal.classList.remove('hidden'); modal.classList.add('flex');
+      document.body.style.overflow = 'hidden';
+    };
+    const close = () => {
+      modal.classList.add('hidden'); modal.classList.remove('flex');
+      clear(body); document.body.style.overflow = '';
+    };
+    document.addEventListener('click', e => {
+      const btn = e.target.closest('[data-expand]');
+      if (btn) {
+        const svg = btn.closest('[data-diagram]')?.querySelector('svg');
+        if (svg) open(svg, btn.dataset.title);
+        return;
+      }
+      if (e.target.matches('[data-modal-close]') || e.target === modal) close();
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !modal.classList.contains('hidden')) close();
+    });
+  })();
+</script>
+</body>
+</html>
