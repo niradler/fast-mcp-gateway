@@ -226,6 +226,40 @@ def test_group_deny_blocks_within_member() -> None:
     assert policy.allows("github_get_repo", group="g1") is True
 
 
+def test_group_allow_cannot_override_server_deny() -> None:
+    """A group allow can only narrow — it never re-permits a server-denied tool.
+
+    The server's allow/deny is the outer boundary; group rules stack on top (AND).
+    Here the server denies ``delete_*`` and the group allows ``*``; the denied tool
+    must stay denied, the permitted one passes.
+    """
+    github = make_server("github", deny=["delete_*"])
+    group = make_group("g1", member_server_ids=["github"], allow=["*"])
+    policy = AccessPolicy()
+    policy.rebuild([github], [group])
+
+    assert policy.allows("github_delete_repo", group="g1") is False
+    assert policy.allows("github_get_repo", group="g1") is True
+
+
+def test_group_allow_intersects_server_allow_list() -> None:
+    """With both allow-lists set, the exposed set is their intersection (AND).
+
+    The server permits ``get_*`` and ``list_*``; the group narrows to ``get_*``.
+    Only ``get_*`` survives: ``list_*`` is dropped by the group, and anything
+    outside the server's allow-list (``delete_*``) was never permitted at all —
+    a group allow cannot add it back.
+    """
+    github = make_server("github", allow=["get_*", "list_*"])
+    group = make_group("g1", member_server_ids=["github"], allow=["get_*", "delete_*"])
+    policy = AccessPolicy()
+    policy.rebuild([github], [group])
+
+    assert policy.allows("github_get_repo", group="g1") is True
+    assert policy.allows("github_list_repos", group="g1") is False
+    assert policy.allows("github_delete_repo", group="g1") is False
+
+
 def test_unknown_group_returns_false() -> None:
     policy = AccessPolicy()
     policy.rebuild([make_server("github")], [])
