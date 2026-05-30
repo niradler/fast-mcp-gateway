@@ -143,8 +143,7 @@ class AccessPolicy:
 
         server_rule = self._server_rules.get(ns)
         if server_rule is None:
-            # Namespace known to split_namespace implies it IS in server_rules,
-            # but be defensive.
+            # Defensive: a namespace from split_namespace is always in server_rules.
             return True
 
         if not _rule_allows(bare, server_rule.allow, server_rule.deny):

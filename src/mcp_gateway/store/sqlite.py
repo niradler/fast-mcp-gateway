@@ -4,8 +4,6 @@ Zero-setup persistence for the registry. Implements the :class:`Store` protocol
 over a single long-lived ``aiosqlite`` connection (so ``:memory:`` databases survive
 for the lifetime of the store). JSON-encoded columns hold the list/dict fields.
 
-Both server and group CRUD are fully implemented.
-
 Domain errors raised by this store, kept backend-agnostic so the admin API can map
 them without importing ``sqlite3``:
 
