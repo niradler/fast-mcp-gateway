@@ -303,6 +303,40 @@ async def test_egress_hook_allows_and_denies_upstreams() -> None:
         await hook(denied)
 
 
+async def test_egress_blocks_connection_end_to_end() -> None:
+    """End-to-end: a denied upstream is refused on the gateway's real connect path.
+
+    Uses ``build_client_factory`` with ``gateway.builder.hooks`` — exactly what
+    ``builder.reload()`` uses to connect to upstreams — so this exercises the egress hook
+    as ``create_gateway`` wired it from the plugin. Client construction opens no socket;
+    the egress hook raises before any transport is built.
+    """
+    from mcp_gateway.app import create_gateway
+    from mcp_gateway.connect import build_client_factory
+    from mcp_gateway.integrations.agt.plugin import AgtAgentOsPlugin
+    from mcp_gateway.integrations.agt.settings import AgtSettings
+    from mcp_gateway.models import ServerRecord
+    from mcp_gateway.store.sqlite import SqliteStore
+
+    store = SqliteStore(":memory:")
+    await store.initialize()
+    plugin = AgtAgentOsPlugin(
+        AgtSettings(enable_egress_policy=True, egress_allow={"api.github.com": [443]})
+    )
+    gateway = create_gateway(store, plugins=[plugin])
+
+    try:
+        denied = ServerRecord(id="s1", name="bad", url="https://evil.attacker.io/mcp")
+        with pytest.raises(PermissionError):
+            await build_client_factory(denied, gateway.builder.hooks)()
+
+        allowed = ServerRecord(id="s2", name="gh", url="https://api.github.com/mcp")
+        client = await build_client_factory(allowed, gateway.builder.hooks)()
+        assert client is not None
+    finally:
+        await store.close()
+
+
 async def test_credential_redaction_end_to_end() -> None:
     from fastmcp import Client
 
