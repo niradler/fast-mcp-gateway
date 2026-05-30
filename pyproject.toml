@@ -114,6 +114,11 @@ ignore = []
     "RET",
     "PTH",
 ]
+"scripts/**" = [
+    "T20",      # validation harnesses report results via print()
+    "PLC0415",  # optional-dependency probes import inside functions
+    "ASYNC109",  # readiness poll-loops use an explicit timeout deadline by design
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["fast_gateway"]
