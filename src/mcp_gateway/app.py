@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, params
 from fastmcp import FastMCP
 
 from mcp_gateway.access import AccessPolicy
@@ -72,6 +72,7 @@ class Gateway:
         mcp_path: str = "/mcp",
         admin_prefix: str = "/admin",
         group_segment: str = "g",
+        admin_dependencies: Sequence[params.Depends] | None = None,
     ) -> None:
         """Mount the MCP app and admin router onto an existing FastAPI app.
 
@@ -82,8 +83,12 @@ class Gateway:
         ``{mcp_path}/{group_segment}/{group}`` (e.g. ``/mcp/g/analytics``) served
         by the same shared MCP app. The group mount is registered first so its
         more specific prefix matches before the full mount.
+
+        The admin CRUD/reload API performs no authentication of its own; pass
+        ``admin_dependencies`` (FastAPI dependencies such as ``[Depends(require_admin)]``)
+        to guard every admin route, or place the mount behind external auth.
         """
-        app.include_router(self.admin_router, prefix=admin_prefix)
+        app.include_router(self.admin_router, prefix=admin_prefix, dependencies=admin_dependencies)
         group_mount = f"{mcp_path}/{group_segment}"
         app.mount(group_mount, GroupDispatch(self.mcp_app, self._transport_path))
         app.mount(mcp_path, self.mcp_app)
@@ -95,7 +100,7 @@ def create_gateway(
     *,
     plugins: Sequence[Plugin] = (),
     name: str = "MCP Gateway",
-    mcp_path: str = "/",
+    transport_path: str = "/",
 ) -> Gateway:
     """Build a :class:`Gateway` over ``store`` with the given ``hooks`` and ``plugins``.
 
@@ -105,6 +110,9 @@ def create_gateway(
     registration order: hooks are merged, FastMCP middleware is added, meta-tools are
     registered, the admin router is extended, and ASGI sub-apps are mounted. Plugin
     ``setup`` / ``teardown`` are driven from the gateway lifespan.
+
+    ``transport_path`` is the MCP transport's own sub-path inside the ASGI app; it is
+    distinct from the ``mcp_path`` mount prefix chosen in :meth:`Gateway.install`.
     """
     base_hooks = hooks or Hooks()
     policy = AccessPolicy()
@@ -138,7 +146,7 @@ def create_gateway(
         if c.admin_router is not None:
             admin_router.include_router(c.admin_router, prefix=f"/{plugin.name}")
 
-    mcp_app = mcp.http_app(path=mcp_path)
+    mcp_app = mcp.http_app(path=transport_path)
     for c in contributions:
         for path, sub_app in c.mounts:
             mcp_app.mount(path, sub_app)
@@ -146,22 +154,22 @@ def create_gateway(
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
         await store.initialize()
-        for plugin in plugins:
-            setup = getattr(plugin, "setup", None)
-            if setup is not None:
-                await setup()
-        await builder.reload()
+        started: list[Plugin] = []
         try:
+            for plugin in plugins:
+                setup = getattr(plugin, "setup", None)
+                if setup is not None:
+                    await setup()
+                started.append(plugin)
+            await builder.reload()
             async with mcp_app.lifespan(app):
                 yield
         finally:
-            try:
-                for plugin in reversed(list(plugins)):
-                    teardown = getattr(plugin, "teardown", None)
-                    if teardown is not None:
-                        await teardown()
-            finally:
-                await store.close()
+            for plugin in reversed(started):
+                teardown = getattr(plugin, "teardown", None)
+                if teardown is not None:
+                    await teardown()
+            await store.close()
 
     return Gateway(
         mcp=mcp,
@@ -169,7 +177,7 @@ def create_gateway(
         admin_router=admin_router,
         builder=builder,
         _lifespan=lifespan,
-        _transport_path=mcp_path,
+        _transport_path=transport_path,
     )
 
 
