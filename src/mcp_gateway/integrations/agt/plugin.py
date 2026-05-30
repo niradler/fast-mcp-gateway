@@ -30,7 +30,7 @@ from mcp_gateway.integrations.agt.detectors import (
     make_semantic_policy_hook,
 )
 from mcp_gateway.integrations.agt.policy import build_evaluator
-from mcp_gateway.integrations.agt.settings import AgtSettings
+from mcp_gateway.integrations.agt.settings import AgtAgentOsSettings
 from mcp_gateway.plugins import PluginContributions
 
 if TYPE_CHECKING:
@@ -46,7 +46,7 @@ class AgtAgentOsPlugin:
 
     name = "agt"
 
-    def __init__(self, settings: AgtSettings) -> None:
+    def __init__(self, settings: AgtAgentOsSettings) -> None:
         self._settings = settings
         self._evaluator: AsyncPolicyEvaluator | None = None
 

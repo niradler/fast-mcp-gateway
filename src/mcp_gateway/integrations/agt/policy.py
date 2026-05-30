@@ -1,4 +1,4 @@
-"""Build and validate an agent-os policy evaluator from :class:`AgtSettings`."""
+"""Build and validate an agent-os policy evaluator from :class:`AgtAgentOsSettings`."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from pathlib import Path
 
 from agent_os.policies import AsyncPolicyEvaluator, PolicyEvaluator
 
-from mcp_gateway.integrations.agt.settings import AgtSettings
+from mcp_gateway.integrations.agt.settings import AgtAgentOsSettings
 
 _logger = logging.getLogger("mcp_gateway.integrations.agt")
 
 
-def build_evaluator(settings: AgtSettings) -> AsyncPolicyEvaluator:
+def build_evaluator(settings: AgtAgentOsSettings) -> AsyncPolicyEvaluator:
     """Load and validate agent-os policies into an async evaluator.
 
     Loading is the validation step: agent-os raises on a malformed policy document

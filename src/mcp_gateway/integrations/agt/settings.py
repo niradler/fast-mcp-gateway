@@ -1,4 +1,11 @@
-"""Configuration for the AGT (agent-os) policy plugin."""
+"""Configuration for the agent-os plugin (:class:`AgtAgentOsPlugin`).
+
+Where agent-os already defines a config type it is reused verbatim, so values pass
+straight through to the agent-os APIs with no transformation: policy documents
+(``PolicyDocument``), prompt-injection config (``DetectionConfig``), semantic-policy
+intent categories (``IntentCategory``), and egress rules (``EgressRule``). The remaining
+fields are gateway-level orchestration knobs that agent-os does not model.
+"""
 
 from __future__ import annotations
 
@@ -6,38 +13,41 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from agent_os.egress_policy import EgressRule
     from agent_os.policies import PolicyDocument
+    from agent_os.prompt_injection import DetectionConfig
+    from agent_os.semantic_policy import IntentCategory
 
 
 @dataclass
-class AgtSettings:
+class AgtAgentOsSettings:
     """Tunables for :class:`~mcp_gateway.integrations.agt.plugin.AgtAgentOsPlugin`.
 
-    Supply policies one of two ways (``policy_dir`` takes precedence):
-
-    - ``policy_dir``: a directory of agent-os YAML policy documents, loaded and
-      validated at startup (a malformed document raises).
-    - ``policies``: agent-os ``PolicyDocument`` objects built in code.
-
-    At each tool call the plugin passes the selected group
-    (``mcp_gateway.access.current_group``) to the policy engine as ``principal`` and
-    ``group``, so policies can enforce per group. When no group view is in use the
-    group is empty and ``default_principal`` is used.
+    Capabilities beyond the always-on policy engine are opt-in via ``enable_*`` toggles;
+    each carries its companion agent-os config object so nothing is re-modelled here.
     """
 
+    # Policy engine (always on). Provide policies via ``policy_dir`` (YAML docs, loaded
+    # and validated at startup) or in-memory ``policies``; ``policy_dir`` takes precedence.
     policy_dir: str | None = None
     policies: list[PolicyDocument] = field(default_factory=list)
     default_principal: str = "*"
     fail_closed: bool = False
 
-    # Quick-win agent-os capabilities, each off by default.
-    enable_prompt_injection: bool = False  # pre: deny calls whose args look like injection
-    injection_sensitivity: str = "balanced"  # strict | balanced | permissive
-    enable_semantic_policy: bool = False  # pre: deny calls with dangerous classified intent
-    semantic_deny: list[str] = field(default_factory=list)  # IntentCategory names to deny
+    # Prompt-injection detection (pre_tool_call). Pass an agent-os ``DetectionConfig``.
+    enable_prompt_injection: bool = False
+    injection_config: DetectionConfig | None = None
+
+    # Semantic-policy intent classification (pre_tool_call).
+    enable_semantic_policy: bool = False
+    semantic_deny: list[IntentCategory] = field(default_factory=list)
     semantic_confidence_threshold: float = 0.5
-    enable_response_scan: bool = False  # post: block responses flagged unsafe
-    enable_credential_redaction: bool = False  # post: redact secrets/PII from responses
-    enable_egress_policy: bool = False  # connect: refuse upstreams outside the allowlist
-    egress_allow: dict[str, list[int]] = field(default_factory=dict)  # domain pattern -> ports
-    egress_default_action: str = "deny"  # action when no allow rule matches
+
+    # Response governance (post_tool_call).
+    enable_response_scan: bool = False
+    enable_credential_redaction: bool = False
+
+    # Egress allowlist (pre_mcp_connect). Provide agent-os ``EgressRule`` objects.
+    enable_egress_policy: bool = False
+    egress_rules: list[EgressRule] = field(default_factory=list)
+    egress_default_action: str = "deny"

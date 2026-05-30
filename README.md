@@ -226,7 +226,8 @@ The `agt` extra wires Microsoft's
 [agent-governance-toolkit](https://github.com/microsoft/agent-governance-toolkit)
 (agent-os) in as `AgtAgentOsPlugin`. Its core capability is the **policy engine**: it
 evaluates policy for every tool call — scoped to the active group — and denies calls the
-policy rejects. Additional agent-os capabilities are opt-in toggles on `AgtSettings`:
+policy rejects. Additional agent-os capabilities are opt-in toggles on `AgtAgentOsSettings`
+(which reuses agent-os's own config types — `DetectionConfig`, `IntentCategory`, `EgressRule`):
 
 | Toggle | Seam | Effect |
 | --- | --- | --- |
@@ -234,7 +235,7 @@ policy rejects. Additional agent-os capabilities are opt-in toggles on `AgtSetti
 | `enable_semantic_policy` (+ `semantic_deny`) | `pre_tool_call` | deny calls whose classified intent is dangerous |
 | `enable_response_scan` | `post_tool_call` | block responses flagged unsafe (credential/PII/threat) |
 | `enable_credential_redaction` | `post_tool_call` | redact secrets/PII out of responses |
-| `enable_egress_policy` (+ `egress_allow`) | `pre_mcp_connect` | refuse upstreams whose URL is outside the allowlist |
+| `enable_egress_policy` (+ `egress_rules`) | `pre_mcp_connect` | refuse upstreams whose URL is outside the allowlist |
 
 ```bash
 pip install "fast-mcp-gateway[agt]"
@@ -242,13 +243,13 @@ pip install "fast-mcp-gateway[agt]"
 
 ```python
 from mcp_gateway import create_gateway, SqliteStore
-from mcp_gateway.integrations.agt import AgtAgentOsPlugin, AgtSettings
+from mcp_gateway.integrations.agt import AgtAgentOsPlugin, AgtAgentOsSettings
 
 gateway = create_gateway(
     store=SqliteStore("gateway.db"),
     plugins=[
         AgtAgentOsPlugin(
-            AgtSettings(
+            AgtAgentOsSettings(
                 policy_dir="./policies",
                 fail_closed=True,
                 enable_prompt_injection=True,

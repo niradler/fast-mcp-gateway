@@ -20,7 +20,7 @@ from agent_os.credential_redactor import CredentialRedactor
 from agent_os.egress_policy import EgressPolicy
 from agent_os.mcp_response_scanner import MCPResponseScanner
 from agent_os.prompt_injection import DetectionConfig, PromptInjectionDetector
-from agent_os.semantic_policy import IntentCategory, SemanticPolicyEngine
+from agent_os.semantic_policy import SemanticPolicyEngine
 from fastmcp.exceptions import ToolError
 
 from mcp_gateway.hooks import (
@@ -31,7 +31,7 @@ from mcp_gateway.hooks import (
     ToolCallResult,
     ToolDecision,
 )
-from mcp_gateway.integrations.agt.settings import AgtSettings
+from mcp_gateway.integrations.agt.settings import AgtAgentOsSettings
 
 
 def _args_text(arguments: dict[str, Any] | None) -> str:
@@ -47,9 +47,9 @@ def _response_text(response: Any) -> str:
     return response if isinstance(response, str) else str(response)
 
 
-def make_prompt_injection_hook(settings: AgtSettings) -> PreToolCallHook:
+def make_prompt_injection_hook(settings: AgtAgentOsSettings) -> PreToolCallHook:
     """Deny a tool call when agent-os flags prompt injection in its arguments."""
-    detector = PromptInjectionDetector(DetectionConfig(sensitivity=settings.injection_sensitivity))
+    detector = PromptInjectionDetector(settings.injection_config or DetectionConfig())
 
     async def prompt_injection(ctx: Any) -> ToolCallResult | None:
         text = _args_text(getattr(ctx.message, "arguments", None))
@@ -66,11 +66,11 @@ def make_prompt_injection_hook(settings: AgtSettings) -> PreToolCallHook:
     return prompt_injection
 
 
-def make_semantic_policy_hook(settings: AgtSettings) -> PreToolCallHook:
+def make_semantic_policy_hook(settings: AgtAgentOsSettings) -> PreToolCallHook:
     """Deny a tool call whose classified intent is dangerous / in the deny list."""
-    deny = [IntentCategory[name] for name in settings.semantic_deny]
     engine = SemanticPolicyEngine(
-        deny=deny or None, confidence_threshold=settings.semantic_confidence_threshold
+        deny=settings.semantic_deny or None,
+        confidence_threshold=settings.semantic_confidence_threshold,
     )
 
     async def semantic_policy(ctx: Any) -> ToolCallResult | None:
@@ -88,7 +88,7 @@ def make_semantic_policy_hook(settings: AgtSettings) -> PreToolCallHook:
     return semantic_policy
 
 
-def make_response_scan_hook(settings: AgtSettings) -> PostToolCallHook:
+def make_response_scan_hook(settings: AgtAgentOsSettings) -> PostToolCallHook:
     """Block a tool response that agent-os flags as unsafe (credential/PII/threat)."""
     scanner = MCPResponseScanner()
 
@@ -102,7 +102,7 @@ def make_response_scan_hook(settings: AgtSettings) -> PostToolCallHook:
     return response_scan
 
 
-def make_credential_redaction_hook(settings: AgtSettings) -> PostToolCallHook:
+def make_credential_redaction_hook(settings: AgtAgentOsSettings) -> PostToolCallHook:
     """Redact credentials/PII out of a tool response (text blocks + structured content)."""
 
     async def credential_redaction(ctx: Any, response: Any) -> Any:
@@ -123,17 +123,17 @@ def make_credential_redaction_hook(settings: AgtSettings) -> PostToolCallHook:
     return credential_redaction
 
 
-def make_egress_hook(settings: AgtSettings) -> ConnectHook:
+def make_egress_hook(settings: AgtAgentOsSettings) -> ConnectHook:
     """Refuse to connect to an upstream whose URL is outside the egress allowlist.
 
     Runs at ``pre_mcp_connect`` (when the proxy opens an upstream session); a denied
-    destination raises, so the gateway never connects to it. ``egress_allow`` maps a
-    domain pattern (``fnmatch``) to its allowed ports; unmatched URLs fall to
+    destination raises, so the gateway never connects to it. ``egress_rules`` are agent-os
+    ``EgressRule`` objects (domain ``fnmatch`` + ports); unmatched URLs fall to
     ``egress_default_action`` (``deny`` by default).
     """
     policy = EgressPolicy(default_action=settings.egress_default_action)
-    for domain, ports in settings.egress_allow.items():
-        policy.add_rule(domain, ports, action="allow")
+    for rule in settings.egress_rules:
+        policy.add_rule(rule.domain, rule.ports, rule.protocol, rule.action)
 
     async def egress_check(context: ConnectContext) -> None:
         decision = policy.check_url(context.server.url)

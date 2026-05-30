@@ -4,6 +4,6 @@ Requires the optional ``agt`` extra (``pip install fast-mcp-gateway[agt]``).
 """
 
 from mcp_gateway.integrations.agt.plugin import AgtAgentOsPlugin
-from mcp_gateway.integrations.agt.settings import AgtSettings
+from mcp_gateway.integrations.agt.settings import AgtAgentOsSettings
 
-__all__ = ["AgtAgentOsPlugin", "AgtSettings"]
+__all__ = ["AgtAgentOsPlugin", "AgtAgentOsSettings"]
