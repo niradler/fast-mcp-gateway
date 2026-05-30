@@ -38,3 +38,6 @@ class AgtSettings:
     semantic_confidence_threshold: float = 0.5
     enable_response_scan: bool = False  # post: block responses flagged unsafe
     enable_credential_redaction: bool = False  # post: redact secrets/PII from responses
+    enable_egress_policy: bool = False  # connect: refuse upstreams outside the allowlist
+    egress_allow: dict[str, list[int]] = field(default_factory=dict)  # domain pattern -> ports
+    egress_default_action: str = "deny"  # action when no allow rule matches

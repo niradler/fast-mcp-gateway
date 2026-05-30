@@ -234,6 +234,7 @@ policy rejects. Additional agent-os capabilities are opt-in toggles on `AgtSetti
 | `enable_semantic_policy` (+ `semantic_deny`) | `pre_tool_call` | deny calls whose classified intent is dangerous |
 | `enable_response_scan` | `post_tool_call` | block responses flagged unsafe (credential/PII/threat) |
 | `enable_credential_redaction` | `post_tool_call` | redact secrets/PII out of responses |
+| `enable_egress_policy` (+ `egress_allow`) | `pre_mcp_connect` | refuse upstreams whose URL is outside the allowlist |
 
 ```bash
 pip install "fast-mcp-gateway[agt]"

@@ -6,6 +6,7 @@ Quick-win agent-os capabilities mapped onto the gateway's seams:
   classification — each denies the call when it fires.
 - ``post_tool_call``: response threat scanning (blocks unsafe responses) and credential
   redaction (rewrites secrets out of the response).
+- ``pre_mcp_connect``: egress policy (refuses upstreams outside an allowlist).
 
 Each detector is built once and reused across calls. They are synchronous and cheap
 (regex / classifier), so they run inline in the async hooks.
@@ -16,12 +17,20 @@ from __future__ import annotations
 from typing import Any
 
 from agent_os.credential_redactor import CredentialRedactor
+from agent_os.egress_policy import EgressPolicy
 from agent_os.mcp_response_scanner import MCPResponseScanner
 from agent_os.prompt_injection import DetectionConfig, PromptInjectionDetector
 from agent_os.semantic_policy import IntentCategory, SemanticPolicyEngine
 from fastmcp.exceptions import ToolError
 
-from mcp_gateway.hooks import PostToolCallHook, PreToolCallHook, ToolCallResult, ToolDecision
+from mcp_gateway.hooks import (
+    ConnectContext,
+    ConnectHook,
+    PostToolCallHook,
+    PreToolCallHook,
+    ToolCallResult,
+    ToolDecision,
+)
 from mcp_gateway.integrations.agt.settings import AgtSettings
 
 
@@ -112,3 +121,26 @@ def make_credential_redaction_hook(settings: AgtSettings) -> PostToolCallHook:
         return response
 
     return credential_redaction
+
+
+def make_egress_hook(settings: AgtSettings) -> ConnectHook:
+    """Refuse to connect to an upstream whose URL is outside the egress allowlist.
+
+    Runs at ``pre_mcp_connect`` (when the proxy opens an upstream session); a denied
+    destination raises, so the gateway never connects to it. ``egress_allow`` maps a
+    domain pattern (``fnmatch``) to its allowed ports; unmatched URLs fall to
+    ``egress_default_action`` (``deny`` by default).
+    """
+    policy = EgressPolicy(default_action=settings.egress_default_action)
+    for domain, ports in settings.egress_allow.items():
+        policy.add_rule(domain, ports, action="allow")
+
+    async def egress_check(context: ConnectContext) -> None:
+        decision = policy.check_url(context.server.url)
+        if not decision.allowed:
+            raise PermissionError(
+                f"Egress denied for upstream {context.server.url!r}: {decision.reason}"
+            )
+        return None
+
+    return egress_check

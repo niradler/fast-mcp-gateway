@@ -282,6 +282,27 @@ async def test_prompt_injection_blocked_end_to_end() -> None:
         await store.close()
 
 
+async def test_egress_hook_allows_and_denies_upstreams() -> None:
+    from mcp_gateway.hooks import ConnectContext
+    from mcp_gateway.integrations.agt.detectors import make_egress_hook
+    from mcp_gateway.integrations.agt.settings import AgtSettings
+    from mcp_gateway.models import ServerRecord
+
+    hook = make_egress_hook(
+        AgtSettings(enable_egress_policy=True, egress_allow={"api.github.com": [443]})
+    )
+    allowed = ConnectContext(
+        server=ServerRecord(id="s1", name="gh", url="https://api.github.com/mcp")
+    )
+    assert await hook(allowed) is None
+
+    denied = ConnectContext(
+        server=ServerRecord(id="s2", name="bad", url="https://evil.attacker.io/mcp")
+    )
+    with pytest.raises(PermissionError):
+        await hook(denied)
+
+
 async def test_credential_redaction_end_to_end() -> None:
     from fastmcp import Client
 

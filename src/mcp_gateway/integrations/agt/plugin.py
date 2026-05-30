@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from mcp_gateway.access import current_group
 from mcp_gateway.hooks import (
+    ConnectHook,
     Hooks,
     PostToolCallHook,
     PreToolCallHook,
@@ -23,6 +24,7 @@ from mcp_gateway.hooks import (
 )
 from mcp_gateway.integrations.agt.detectors import (
     make_credential_redaction_hook,
+    make_egress_hook,
     make_prompt_injection_hook,
     make_response_scan_hook,
     make_semantic_policy_hook,
@@ -74,7 +76,13 @@ class AgtAgentOsPlugin:
         if settings.enable_credential_redaction:
             post.append(make_credential_redaction_hook(settings))
 
-        return PluginContributions(hooks=Hooks(pre_tool_call=pre, post_tool_call=post))
+        connect: list[ConnectHook] = []
+        if settings.enable_egress_policy:
+            connect.append(make_egress_hook(settings))
+
+        return PluginContributions(
+            hooks=Hooks(pre_mcp_connect=connect, pre_tool_call=pre, post_tool_call=post)
+        )
 
     def _make_enforce_hook(self) -> PreToolCallHook:
         settings = self._settings
