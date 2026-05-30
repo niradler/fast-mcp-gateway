@@ -14,6 +14,7 @@ disappear.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from fastmcp import FastMCP
@@ -40,6 +41,7 @@ class GatewayBuilder:
         self.hooks = hooks
         self.policy = policy
         self._baseline_providers: list[Provider] = list(mcp.providers)
+        self._reload_lock = asyncio.Lock()
 
     async def reload(self) -> None:
         """Rebuild all proxy mounts from the current registry.
@@ -50,38 +52,43 @@ class GatewayBuilder:
         current after every reload, and refreshes the persisted tool catalog by
         introspecting the enabled upstreams (the source for ``tools/list`` and the
         search meta-tools).
+
+        Serialized so concurrent reloads (e.g. a ``POST /admin/reload`` racing a
+        plugin-triggered one) cannot interleave their store reads, provider mutation,
+        and catalog replacement and leave the gateway in a mixed state.
         """
-        servers = await self.store.list_servers()
-        groups = await self.store.list_groups()
+        async with self._reload_lock:
+            servers = await self.store.list_servers()
+            groups = await self.store.list_groups()
 
-        if self.policy is not None:
-            # Rebuild from ALL servers (not just enabled) so every namespace is
-            # known for split_namespace, even if the server is currently disabled.
-            self.policy.rebuild(servers, groups)
+            if self.policy is not None:
+                # Rebuild from ALL servers (not just enabled) so every namespace is
+                # known for split_namespace, even if the server is currently disabled.
+                self.policy.rebuild(servers, groups)
 
-        self.mcp.providers[:] = self._baseline_providers
+            self.mcp.providers[:] = self._baseline_providers
 
-        mounted = 0
-        for server in servers:
-            if not server.enabled:
-                continue
-            factory = build_client_factory(server, self.hooks)
-            proxy = FastMCPProxy(client_factory=factory, name=server.name)
-            self.mcp.mount(proxy, namespace=server.name)
-            mounted += 1
+            mounted = 0
+            for server in servers:
+                if not server.enabled:
+                    continue
+                factory = build_client_factory(server, self.hooks)
+                proxy = FastMCPProxy(client_factory=factory, name=server.name)
+                self.mcp.mount(proxy, namespace=server.name)
+                mounted += 1
 
-        catalog, failed_ids = await collect_catalog(servers, self.hooks)
-        if failed_ids:
-            retained = [t for t in await self.store.list_catalog() if t.server_id in failed_ids]
-            if retained:
-                logger.warning(
-                    "Retaining %d last-known tool(s) for %d server(s) that failed "
-                    "introspection during reload.",
-                    len(retained),
-                    len(failed_ids),
-                )
-            catalog = catalog + retained
-        await self.store.replace_catalog(catalog)
+            catalog, failed_ids = await collect_catalog(servers, self.hooks)
+            if failed_ids:
+                retained = [t for t in await self.store.list_catalog() if t.server_id in failed_ids]
+                if retained:
+                    logger.warning(
+                        "Retaining %d last-known tool(s) for %d server(s) that failed "
+                        "introspection during reload.",
+                        len(retained),
+                        len(failed_ids),
+                    )
+                catalog = catalog + retained
+            await self.store.replace_catalog(catalog)
 
         logger.info(
             "Gateway reloaded: %d server(s) mounted, %d tool(s) cataloged.",
