@@ -8,6 +8,7 @@ scopes results so denied tools are neither searchable nor describable.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
@@ -18,6 +19,18 @@ from mcp_gateway.access import AccessPolicy
 from mcp_gateway.models import CatalogTool, ServerRecord
 from mcp_gateway.search import register_search_tools
 from mcp_gateway.store.sqlite import SqliteStore
+
+# Stores opened by ``_gateway`` are held alive by the FastMCP server/Client, so they are
+# not garbage-collected between tests; their aiosqlite worker threads are non-daemon and
+# would block interpreter shutdown. Close them after each test.
+_OPEN_STORES: list[SqliteStore] = []
+
+
+@pytest.fixture(autouse=True)
+async def _close_open_stores() -> AsyncIterator[None]:
+    yield
+    while _OPEN_STORES:
+        await _OPEN_STORES.pop().close()
 
 
 def _catalog() -> list[CatalogTool]:
@@ -66,6 +79,7 @@ async def _gateway(policy: AccessPolicy | None) -> FastMCP:
     store = SqliteStore(":memory:")
     await store.initialize()
     await store.replace_catalog(_catalog())
+    _OPEN_STORES.append(store)
     mcp: FastMCP = FastMCP("search-test")
     register_search_tools(mcp, store, policy)
     return mcp

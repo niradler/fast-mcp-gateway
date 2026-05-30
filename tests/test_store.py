@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+
 import pytest
 
 from mcp_gateway.models import (
@@ -16,10 +18,11 @@ from mcp_gateway.store.sqlite import SqliteStore
 
 
 @pytest.fixture
-async def store() -> SqliteStore:
+async def store() -> AsyncIterator[SqliteStore]:
     store = SqliteStore(":memory:")
     await store.initialize()
-    return store
+    yield store
+    await store.close()
 
 
 def sample(name: str = "weather") -> ServerCreate:
