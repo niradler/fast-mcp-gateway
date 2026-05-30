@@ -347,31 +347,37 @@ class SqliteStore:
             raise KeyError(group_id)
 
     async def replace_catalog(self, tools: Sequence[CatalogTool]) -> None:
-        """Wipe and repopulate the catalog (and its FTS index).
+        """Wipe and repopulate the catalog (and its FTS index) atomically.
 
-        The whole wipe/repopulate runs under the store's write lock, so a concurrent
-        admin write cannot commit a half-finished catalog on the shared connection.
+        Runs under the store's write lock so a concurrent admin write cannot commit a
+        half-finished catalog on the shared connection, and rolls back on any failure so
+        a bad row never leaves the previous catalog deleted-but-not-repopulated.
         """
         placeholders = ", ".join(["?"] * 10)
         rows = [_catalog_values(tool) for tool in tools]
         async with self._write_lock:
-            await self._conn.execute("DELETE FROM catalog_tools")
-            if rows:
-                await self._conn.executemany(
-                    f"INSERT INTO catalog_tools ({_CATALOG_COLUMNS}) VALUES ({placeholders})", rows
-                )
-            if self._fts_enabled:
-                await self._conn.execute("DELETE FROM catalog_fts")
-                if tools:
+            try:
+                await self._conn.execute("DELETE FROM catalog_tools")
+                if rows:
                     await self._conn.executemany(
-                        "INSERT INTO catalog_fts (name, bare_name, description, tags) "
-                        "VALUES (?, ?, ?, ?)",
-                        [
-                            (t.name, t.bare_name, t.description or "", " ".join(t.tags))
-                            for t in tools
-                        ],
+                        f"INSERT INTO catalog_tools ({_CATALOG_COLUMNS}) VALUES ({placeholders})",
+                        rows,
                     )
-            await self._conn.commit()
+                if self._fts_enabled:
+                    await self._conn.execute("DELETE FROM catalog_fts")
+                    if tools:
+                        await self._conn.executemany(
+                            "INSERT INTO catalog_fts (name, bare_name, description, tags) "
+                            "VALUES (?, ?, ?, ?)",
+                            [
+                                (t.name, t.bare_name, t.description or "", " ".join(t.tags))
+                                for t in tools
+                            ],
+                        )
+                await self._conn.commit()
+            except Exception:
+                await self._conn.rollback()
+                raise
 
     async def list_catalog(self) -> list[CatalogTool]:
         cursor = await self._conn.execute(
