@@ -80,13 +80,16 @@ async def _introspect_server(server: ServerRecord, hooks: Hooks) -> list[Catalog
     return [catalog_tool_from_mcp(server, tool) for tool in upstream_tools]
 
 
-async def collect_catalog(servers: Sequence[ServerRecord], hooks: Hooks) -> list[CatalogTool]:
+async def collect_catalog(
+    servers: Sequence[ServerRecord], hooks: Hooks
+) -> tuple[list[CatalogTool], set[str]]:
     """Introspect every enabled server concurrently and return the combined catalog.
 
     Servers are introspected in parallel, so reload latency is bounded by the
-    slowest single upstream rather than the sum. A server that fails to connect or
-    list its tools is logged and skipped, so a single bad upstream contributes
-    nothing rather than breaking the whole reload.
+    slowest single upstream rather than the sum. Returns ``(catalog, failed_ids)``:
+    a server that fails to connect or list its tools is logged and its id collected
+    in ``failed_ids`` so the caller can retain its last-known rows rather than letting
+    a transient blip drop the upstream from discovery.
     """
     enabled = [server for server in servers if server.enabled]
     results = await asyncio.gather(
@@ -94,9 +97,11 @@ async def collect_catalog(servers: Sequence[ServerRecord], hooks: Hooks) -> list
         return_exceptions=True,
     )
     catalog: list[CatalogTool] = []
+    failed_ids: set[str] = set()
     for server, result in zip(enabled, results, strict=True):
         if isinstance(result, BaseException):
             logger.warning("Catalog introspection failed for server %r; skipping.", server.name)
+            failed_ids.add(server.id)
             continue
         catalog.extend(result)
-    return catalog
+    return catalog, failed_ids

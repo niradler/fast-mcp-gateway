@@ -70,7 +70,17 @@ class GatewayBuilder:
             self.mcp.mount(proxy, namespace=server.name)
             mounted += 1
 
-        catalog = await collect_catalog(servers, self.hooks)
+        catalog, failed_ids = await collect_catalog(servers, self.hooks)
+        if failed_ids:
+            retained = [t for t in await self.store.list_catalog() if t.server_id in failed_ids]
+            if retained:
+                logger.warning(
+                    "Retaining %d last-known tool(s) for %d server(s) that failed "
+                    "introspection during reload.",
+                    len(retained),
+                    len(failed_ids),
+                )
+            catalog = catalog + retained
         await self.store.replace_catalog(catalog)
 
         logger.info(
