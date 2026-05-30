@@ -37,8 +37,8 @@ def _deny_doc(field: str, value: str, *, name: str = "deny-rule") -> Any:
 def _gateway_context() -> Any:
     from fastmcp import FastMCP
 
-    from mcp_gateway.plugins import GatewayContext
-    from mcp_gateway.store.sqlite import SqliteStore
+    from fast_mcp_gateway.plugins import GatewayContext
+    from fast_mcp_gateway.store.sqlite import SqliteStore
 
     async def _noop_reload() -> None: ...
 
@@ -46,7 +46,7 @@ def _gateway_context() -> Any:
 
 
 async def _run_hook(hook: Any, tool_name: str, group: str | None) -> Any:
-    from mcp_gateway.access import current_group
+    from fast_mcp_gateway.access import current_group
 
     token = current_group.set(group)
     try:
@@ -65,8 +65,8 @@ def test_agt_policy_api_surface() -> None:
 
 
 async def test_build_evaluator_denies_via_in_memory_policy() -> None:
-    from mcp_gateway.plugins.agentos.policy import build_evaluator
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.plugins.agentos.policy import build_evaluator
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
     evaluator = build_evaluator(AgtAgentOsSettings(policies=[_deny_doc("resource", "delete_all")]))
 
@@ -77,16 +77,16 @@ async def test_build_evaluator_denies_via_in_memory_policy() -> None:
 
 
 def test_build_evaluator_missing_dir_raises() -> None:
-    from mcp_gateway.plugins.agentos.policy import build_evaluator
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.plugins.agentos.policy import build_evaluator
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
     with pytest.raises(FileNotFoundError):
         build_evaluator(AgtAgentOsSettings(policy_dir="does-not-exist-xyz"))
 
 
 async def test_build_evaluator_loads_and_validates_yaml_dir(tmp_path: Any) -> None:
-    from mcp_gateway.plugins.agentos.policy import build_evaluator
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.plugins.agentos.policy import build_evaluator
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
     (tmp_path / "policy.yaml").write_text(
         'version: "1.0"\n'
@@ -108,9 +108,9 @@ async def test_build_evaluator_loads_and_validates_yaml_dir(tmp_path: Any) -> No
 
 
 async def test_enforce_hook_denies_disallowed_tool() -> None:
-    from mcp_gateway.hooks import ToolDecision
-    from mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.hooks import ToolDecision
+    from fast_mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
     plugin = AgtAgentOsPlugin(AgtAgentOsSettings(policies=[_deny_doc("resource", "delete_all")]))
     await plugin.setup()
@@ -125,9 +125,9 @@ async def test_enforce_hook_denies_disallowed_tool() -> None:
 
 
 async def test_enforce_hook_scopes_by_current_group() -> None:
-    from mcp_gateway.hooks import ToolDecision
-    from mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.hooks import ToolDecision
+    from fast_mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
     plugin = AgtAgentOsPlugin(AgtAgentOsSettings(policies=[_deny_doc("group", "restricted")]))
     await plugin.setup()
@@ -144,11 +144,11 @@ async def test_agt_plugin_satisfies_protocol_and_assembles() -> None:
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    from mcp_gateway.app import create_gateway
-    from mcp_gateway.plugins import Plugin
-    from mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
-    from mcp_gateway.store.sqlite import SqliteStore
+    from fast_mcp_gateway.app import create_gateway
+    from fast_mcp_gateway.plugins import Plugin
+    from fast_mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.store.sqlite import SqliteStore
 
     store = SqliteStore(":memory:")
     plugin: Plugin = AgtAgentOsPlugin(
@@ -172,10 +172,10 @@ async def test_policy_blocks_tool_call_end_to_end() -> None:
     from fastmcp import Client
     from fastmcp.exceptions import ToolError
 
-    from mcp_gateway.app import create_gateway
-    from mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
-    from mcp_gateway.store.sqlite import SqliteStore
+    from fast_mcp_gateway.app import create_gateway
+    from fast_mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.store.sqlite import SqliteStore
 
     store = SqliteStore(":memory:")
     await store.initialize()
@@ -206,9 +206,9 @@ def _msg(name: str, arguments: dict[str, Any] | None = None) -> Any:
 
 
 async def test_prompt_injection_hook_denies_injection_args() -> None:
-    from mcp_gateway.hooks import ToolDecision
-    from mcp_gateway.plugins.agentos.detectors import make_prompt_injection_hook
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.hooks import ToolDecision
+    from fast_mcp_gateway.plugins.agentos.detectors import make_prompt_injection_hook
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
     hook = make_prompt_injection_hook(AgtAgentOsSettings(enable_prompt_injection=True))
     assert await hook(_msg("echo", {"text": "add 2 and 3"})) is None
@@ -222,9 +222,9 @@ async def test_prompt_injection_hook_denies_injection_args() -> None:
 async def test_semantic_policy_hook_denies_with_tuned_config() -> None:
     from agent_os.semantic_policy import IntentCategory, SemanticPolicyConfig
 
-    from mcp_gateway.hooks import ToolDecision
-    from mcp_gateway.plugins.agentos.detectors import make_semantic_policy_hook
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.hooks import ToolDecision
+    from fast_mcp_gateway.plugins.agentos.detectors import make_semantic_policy_hook
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
     config = SemanticPolicyConfig(
         signals={"destructive_data": [("delete", 0.9, "destructive verb")]}
@@ -245,8 +245,8 @@ async def test_semantic_policy_hook_denies_with_tuned_config() -> None:
 async def test_response_scan_hook_blocks_unsafe_response() -> None:
     from fastmcp.exceptions import ToolError
 
-    from mcp_gateway.plugins.agentos.detectors import make_response_scan_hook
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.plugins.agentos.detectors import make_response_scan_hook
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
     hook = make_response_scan_hook(AgtAgentOsSettings(enable_response_scan=True))
     assert await hook(_msg("t"), "all good") == "all good"
@@ -255,8 +255,8 @@ async def test_response_scan_hook_blocks_unsafe_response() -> None:
 
 
 async def test_credential_redaction_hook_redacts_string() -> None:
-    from mcp_gateway.plugins.agentos.detectors import make_credential_redaction_hook
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.plugins.agentos.detectors import make_credential_redaction_hook
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
     hook = make_credential_redaction_hook(AgtAgentOsSettings(enable_credential_redaction=True))
     out = await hook(_msg("t"), "token=ghp_ABCDEFonetwothreefourfive1234567890")
@@ -268,10 +268,10 @@ async def test_prompt_injection_blocked_end_to_end() -> None:
     from fastmcp import Client
     from fastmcp.exceptions import ToolError
 
-    from mcp_gateway.app import create_gateway
-    from mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
-    from mcp_gateway.store.sqlite import SqliteStore
+    from fast_mcp_gateway.app import create_gateway
+    from fast_mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.store.sqlite import SqliteStore
 
     store = SqliteStore(":memory:")
     await store.initialize()
@@ -302,10 +302,10 @@ async def test_prompt_injection_blocked_end_to_end() -> None:
 async def test_egress_hook_allows_and_denies_upstreams() -> None:
     from agent_os.egress_policy import EgressRule
 
-    from mcp_gateway.hooks import ConnectContext
-    from mcp_gateway.models import ServerRecord
-    from mcp_gateway.plugins.agentos.detectors import make_egress_hook
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.hooks import ConnectContext
+    from fast_mcp_gateway.models import ServerRecord
+    from fast_mcp_gateway.plugins.agentos.detectors import make_egress_hook
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
     hook = make_egress_hook(
         AgtAgentOsSettings(
@@ -335,12 +335,12 @@ async def test_egress_blocks_connection_end_to_end() -> None:
     """
     from agent_os.egress_policy import EgressRule
 
-    from mcp_gateway.app import create_gateway
-    from mcp_gateway.connect import build_client_factory
-    from mcp_gateway.models import ServerRecord
-    from mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
-    from mcp_gateway.store.sqlite import SqliteStore
+    from fast_mcp_gateway.app import create_gateway
+    from fast_mcp_gateway.connect import build_client_factory
+    from fast_mcp_gateway.models import ServerRecord
+    from fast_mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.store.sqlite import SqliteStore
 
     store = SqliteStore(":memory:")
     await store.initialize()
@@ -368,10 +368,10 @@ async def test_egress_blocks_connection_end_to_end() -> None:
 async def test_credential_redaction_end_to_end() -> None:
     from fastmcp import Client
 
-    from mcp_gateway.app import create_gateway
-    from mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
-    from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
-    from mcp_gateway.store.sqlite import SqliteStore
+    from fast_mcp_gateway.app import create_gateway
+    from fast_mcp_gateway.plugins.agentos.plugin import AgtAgentOsPlugin
+    from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+    from fast_mcp_gateway.store.sqlite import SqliteStore
 
     store = SqliteStore(":memory:")
     await store.initialize()

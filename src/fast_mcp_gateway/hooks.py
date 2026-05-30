@@ -1,23 +1,9 @@
-"""Hooks: the gateway's single extension mechanism.
+"""Hooks: the gateway's single extension mechanism for auth, policy, HIL, audit, etc.
 
-Everything bespoke — auth, policy, human-in-the-loop, redaction, audit, cost
-limits — is a plain async function passed at ``create_gateway`` time. There is no
-plugin manager and no auth subsystem. Hooks are grouped in :class:`Hooks` and bound
-to the correct layer:
-
-- ``pre_mcp_connect`` runs in the proxy client factory (see ``connect.py``).
-- ``pre_list_tools`` / ``pre_tool_call`` / ``confirmation`` / ``post_tool_call`` run
-  in :class:`HookMiddleware`, a thin FastMCP middleware dispatcher.
-
-A ``pre_tool_call`` hook returning ``REQUIRE_CONFIRMATION`` triggers the
-``confirmation`` hooks (human-in-the-loop); if any of them rejects — or none is
-registered — the call is denied (fail-safe).
-
-``pre_list_tools`` hooks receive the current tool catalog and return a (possibly
-filtered or transformed) catalog, mirroring ``post_tool_call``'s
-``(context, result) -> result`` shape.
-
-Hooks chain in registration order.
+Five seams: ``pre_mcp_connect`` (client factory), ``pre_list_tools``, ``pre_tool_call``,
+``confirmation`` (HIL — fail-safe: deny if none registered), and ``post_tool_call``.
+Hooks chain in registration order; :class:`Hooks` groups them, :class:`HookMiddleware`
+dispatches them.
 """
 
 from __future__ import annotations
@@ -33,8 +19,8 @@ from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.tools.base import Tool
 from pydantic import BaseModel
 
-from mcp_gateway.access import AccessPolicy, current_group
-from mcp_gateway.models import ServerRecord
+from fast_mcp_gateway.access import AccessPolicy, current_group
+from fast_mcp_gateway.models import ServerRecord
 
 
 class ConnectContext(BaseModel):
@@ -76,21 +62,24 @@ class ConfirmationContext(BaseModel):
 
 CatalogProvider = Callable[[], Awaitable[Sequence[Tool]]]
 
-# Hook function signatures. All hooks are async.
 ConnectHook = Callable[[ConnectContext], Awaitable[ConnectSettings | None]]
-# Receives the current tool catalog and returns the (possibly filtered/transformed) catalog.
 ListToolsHook = Callable[[MiddlewareContext[Any], Sequence[Tool]], Awaitable[Sequence[Tool]]]
 PreToolCallHook = Callable[
     [MiddlewareContext[mt.CallToolRequestParams]], Awaitable[ToolCallResult | None]
 ]
-# Returns True to approve the call, False to reject it.
 ConfirmationHook = Callable[[ConfirmationContext], Awaitable[bool]]
 PostToolCallHook = Callable[[MiddlewareContext[mt.CallToolRequestParams], Any], Awaitable[Any]]
 
 
 @dataclass
 class Hooks:
-    """Container of hook functions, passed at ``create_gateway``."""
+    """Container of hook functions, passed at ``create_gateway``.
+
+    All hooks are async, and each field is a list run in registration order.
+    ``pre_list_tools`` receives the current tool catalog and returns a possibly
+    filtered or transformed catalog; a ``confirmation`` hook returns True to approve
+    a call or False to reject it.
+    """
 
     pre_mcp_connect: list[ConnectHook] = field(default_factory=list)
     pre_list_tools: list[ListToolsHook] = field(default_factory=list)
@@ -132,14 +121,9 @@ class HookMiddleware(Middleware):
     async def on_list_tools(
         self, context: MiddlewareContext[Any], call_next: Callable[..., Any]
     ) -> Any:
-        """Obtain the tool catalog, apply the access policy filter, then thread
-        through each ``pre_list_tools`` hook in registration order.
-
-        When a ``catalog`` provider is configured the persisted snapshot answers
-        the request (no upstream fan-out); otherwise the live aggregation
-        (``call_next``) is used. Policy filtering happens before user hooks so
-        namespace splitting works correctly on the original namespaced names
-        (user hooks may rename tools).
+        """Serve the catalog snapshot (no fan-out) or live aggregation, apply the policy
+        filter, then thread each ``pre_list_tools`` hook. Policy runs before user hooks
+        so namespace splitting sees the original namespaced names.
         """
         if self.catalog is not None:
             tools: Sequence[Tool] = await self.catalog()
@@ -177,7 +161,6 @@ class HookMiddleware(Middleware):
     async def _require_confirmation(self, message: Any, result: ToolCallResult) -> None:
         """Run the confirmation hooks; deny the call if any rejects or none exists."""
         if not self.hooks.confirmation:
-            # Fail-safe: confirmation was demanded but nothing can grant it.
             raise ToolError(
                 f"Tool '{message.name}' requires confirmation but no confirmation "
                 f"hook is registered."

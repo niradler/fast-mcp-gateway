@@ -6,9 +6,9 @@ from __future__ import annotations
 from fastmcp.client.transports.http import StreamableHttpTransport
 from fastmcp.client.transports.sse import SSETransport
 
-from mcp_gateway.connect import build_client_factory, resolve_connect_settings
-from mcp_gateway.hooks import ConnectContext, ConnectSettings, Hooks
-from mcp_gateway.models import ServerRecord, Transport
+from fast_mcp_gateway.connect import build_client_factory, resolve_connect_settings
+from fast_mcp_gateway.hooks import ConnectContext, ConnectSettings, Hooks
+from fast_mcp_gateway.models import ServerRecord, Transport
 
 
 def record(transport: Transport = Transport.HTTP) -> ServerRecord:

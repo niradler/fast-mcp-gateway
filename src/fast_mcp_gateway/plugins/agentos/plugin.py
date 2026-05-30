@@ -1,23 +1,20 @@
-"""AgtAgentOsPlugin: the gateway's Microsoft agent-governance-toolkit (agent-os) plugin.
+"""AgtAgentOsPlugin: gateway integration for Microsoft agent-os governance.
 
-This is the gateway's first integration plugin and the home for agent-os capabilities.
-Today it contributes a single ``pre_tool_call`` hook that evaluates agent-os policy for
-every tool call and denies the call when the policy rejects it. The active group
-(``mcp_gateway.access.current_group``, set per request by the group-scoped MCP mount) is
-passed to the engine as ``principal`` and ``group`` so policies enforce per group — no
-registry lookups are needed.
+Contributes ``pre_tool_call`` policy enforcement; the active group (``current_group``)
+is passed to the engine as ``principal``/``group`` so policies enforce per-group
+without registry lookups.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
 
 import mcp.types as mt
+from agent_os.policies import AsyncPolicyEvaluator
 from fastmcp.server.middleware import MiddlewareContext
 
-from mcp_gateway.access import current_group
-from mcp_gateway.hooks import (
+from fast_mcp_gateway.access import current_group
+from fast_mcp_gateway.hooks import (
     ConnectHook,
     Hooks,
     PostToolCallHook,
@@ -25,23 +22,18 @@ from mcp_gateway.hooks import (
     ToolCallResult,
     ToolDecision,
 )
-from mcp_gateway.plugins import PluginContributions
-from mcp_gateway.plugins.agentos.detectors import (
+from fast_mcp_gateway.plugins import GatewayContext, PluginContributions
+from fast_mcp_gateway.plugins.agentos.detectors import (
     make_credential_redaction_hook,
     make_egress_hook,
     make_prompt_injection_hook,
     make_response_scan_hook,
     make_semantic_policy_hook,
 )
-from mcp_gateway.plugins.agentos.policy import build_evaluator
-from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+from fast_mcp_gateway.plugins.agentos.policy import build_evaluator
+from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
-if TYPE_CHECKING:
-    from agent_os.policies import AsyncPolicyEvaluator
-
-    from mcp_gateway.plugins import GatewayContext
-
-_logger = logging.getLogger("mcp_gateway.plugins.agentos")
+_logger = logging.getLogger("fast_mcp_gateway.plugins.agentos")
 
 
 class AgtAgentOsPlugin:

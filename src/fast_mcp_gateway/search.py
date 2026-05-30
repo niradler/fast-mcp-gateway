@@ -1,19 +1,9 @@
-"""Local meta-tools for exploring large tool fleets without dumping the catalog.
+"""``search_tools`` and ``describe_tool`` meta-tools for exploring large tool fleets.
 
-Registers two tools on the parent gateway server:
-
-- ``search_tools(query)`` — ranked keyword lookup over the persisted catalog.
-- ``describe_tool(name)`` — full schema for one tool (progressive disclosure).
-
-Both read the SQLite catalog snapshot (FTS5-ranked) that ``GatewayBuilder.reload``
-maintains, so they never fan out to upstreams. Results are scoped to the caller's
-view: the access policy's allow/deny and the request's group are applied on top of
-the raw matches, and a denied or out-of-scope tool simply reads as "not found"
-(no existence leak).
-
-Allow/deny is applied after ranking the top ``_CANDIDATE_CAP`` catalog matches, so a
-heavily restricted caller in a very large fleet may miss allowed tools that rank below
-the cap; push scoping into the catalog query if that ever bites.
+Both read the FTS5-ranked catalog snapshot; no upstream fan-out. Policy and group
+scoping are applied after ranking ``_CANDIDATE_CAP`` candidates, so a heavily restricted
+caller in a large fleet may miss allowed tools ranked below the cap. Denied tools read
+as "not found" (no existence leak).
 """
 
 from __future__ import annotations
@@ -23,9 +13,9 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
-from mcp_gateway.access import AccessPolicy, current_group
-from mcp_gateway.models import CatalogTool
-from mcp_gateway.store.base import Store
+from fast_mcp_gateway.access import AccessPolicy, current_group
+from fast_mcp_gateway.models import CatalogTool
+from fast_mcp_gateway.store.base import Store
 
 _MAX_LIMIT = 50
 _CANDIDATE_CAP = 200

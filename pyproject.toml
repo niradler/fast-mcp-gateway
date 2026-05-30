@@ -48,10 +48,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mcp_gateway"]
+packages = ["src/fast_mcp_gateway"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/mcp_gateway", "README.md", "LICENSE"]
+include = ["src/fast_mcp_gateway", "README.md", "LICENSE"]
 
 # TODO: agent-os 4.x lives only in the GitHub monorepo for now (PyPI `agent-os-kernel`
 # lags at 3.7.0). Pull the kernel and its in-repo `core` dependency from git. Remove both
@@ -78,21 +78,45 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = [
-    "E",    # pycodestyle errors
-    "F",    # pyflakes
-    "I",    # isort
-    "UP",   # pyupgrade
-    "B",    # flake8-bugbear
-    "SIM",  # flake8-simplify
-    "C4",   # flake8-comprehensions
-    "ASYNC",# flake8-async
-    "PT",   # flake8-pytest-style
-    "RUF",  # ruff-specific
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "I",      # isort
+    "UP",     # pyupgrade
+    "B",      # flake8-bugbear
+    "SIM",    # flake8-simplify
+    "C4",     # flake8-comprehensions
+    "ASYNC",  # flake8-async
+    "PT",     # flake8-pytest-style
+    "RUF",    # ruff-specific
+    "PLC0415",# import-outside-top-level — no inline/lazy imports inside functions
+    "ERA",    # eradicate — no commented-out code
+    "T20",    # flake8-print — no print(); use the logger
+    "N",      # pep8-naming — snake_case funcs/vars, PascalCase classes
+    "TID",    # flake8-tidy-imports — absolute imports only, no relative
+    "FA",     # flake8-future-annotations — require `from __future__ import annotations`
+    "LOG",    # flake8-logging — correct logger construction/use
+    "G",      # flake8-logging-format — structured logging, no f-strings in log calls
+    "RET",    # flake8-return — clean return flow
+    "PTH",    # flake8-use-pathlib — pathlib over os.path
 ]
 ignore = []
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "PLC0415",  # inline imports are idiomatic in tests
+    "ERA",
+    "T20",
+    "N",
+    "TID",
+    "FA",
+    "LOG",
+    "G",
+    "RET",
+    "PTH",
+]
+
 [tool.ruff.lint.isort]
-known-first-party = ["mcp_gateway"]
+known-first-party = ["fast_mcp_gateway"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -123,7 +147,7 @@ testpaths = ["tests"]
 addopts = "-ra -q"
 
 [tool.coverage.run]
-source = ["src/mcp_gateway"]
+source = ["src/fast_mcp_gateway"]
 branch = true
 
 [tool.coverage.report]

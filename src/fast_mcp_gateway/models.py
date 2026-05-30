@@ -1,7 +1,7 @@
 """Pydantic schemas shared across the gateway.
 
 These describe the persisted registry (servers, groups) and the request/response
-shapes used by the admin API. Storage backends in ``mcp_gateway.store`` translate
+shapes used by the admin API. Storage backends in ``fast_mcp_gateway.store`` translate
 between these models and their own representation.
 """
 
@@ -113,16 +113,11 @@ class GroupRecord(GroupBase):
 
 
 class CatalogTool(BaseModel):
-    """One upstream tool, as captured in the persisted catalog snapshot.
+    """One upstream tool in the persisted catalog snapshot.
 
-    The snapshot is rebuilt on every ``GatewayBuilder.reload`` by introspecting the
-    enabled upstreams. It is the single source of truth for both the gateway's
-    ``tools/list`` and the ``search_tools`` / ``describe_tool`` meta-tools, so it
-    carries enough of each tool's schema to reconstruct the MCP wire form without
-    re-querying upstreams.
-
-    ``name`` is the namespaced name as exposed by the gateway (``"<namespace>_<bare>"``);
-    ``bare_name`` is the unprefixed name on the upstream.
+    ``name`` is the gateway-exposed namespaced name (``"<namespace>_<bare>"``);
+    ``bare_name`` is the unprefixed name on the upstream. Carries enough schema to
+    reconstruct the MCP wire form without re-querying upstreams.
     """
 
     server_id: str

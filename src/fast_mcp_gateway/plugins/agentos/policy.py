@@ -7,19 +7,16 @@ from pathlib import Path
 
 from agent_os.policies import AsyncPolicyEvaluator, PolicyEvaluator
 
-from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
-_logger = logging.getLogger("mcp_gateway.plugins.agentos")
+_logger = logging.getLogger("fast_mcp_gateway.plugins.agentos")
 
 
 def build_evaluator(settings: AgtAgentOsSettings) -> AsyncPolicyEvaluator:
     """Load and validate agent-os policies into an async evaluator.
 
-    Loading is the validation step: agent-os raises on a malformed policy document
-    or missing ``policy_dir``. ``policy_dir`` takes precedence over in-memory
-    ``policies``. With neither configured this raises ``ValueError`` unless
-    ``settings.allow_no_policies`` is True; in that opt-in case the engine allows every
-    call (allow-all), which is logged so a misconfigured no-op plugin is visible.
+    ``policy_dir`` wins over in-memory ``policies``. With neither set, raises unless
+    ``allow_no_policies`` is True (allow-all mode, logged as a warning).
     """
     if settings.policy_dir is not None:
         directory = Path(settings.policy_dir)

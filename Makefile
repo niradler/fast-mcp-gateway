@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help install dev lint format format-check typecheck test test-cov check build publish run clean
+.PHONY: help install dev lint format format-check typecheck slop test test-cov check build publish run clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
@@ -22,13 +22,16 @@ format-check: ## Verify formatting without writing (CI)
 typecheck: ## Type-check with mypy (strict)
 	uv run mypy
 
+slop: ## Flag AI-slop ruff can't see (inline comments, TYPE_CHECKING blocks, long docstrings)
+	uv run python tools/check_slop.py src
+
 test: ## Run the test suite
 	uv run pytest
 
 test-cov: ## Run tests with a coverage report
 	uv run pytest --cov --cov-report=term-missing
 
-check: lint format-check typecheck test ## Run the full CI gate (lint + format + types + tests)
+check: lint format-check typecheck slop test ## Run the full CI gate (lint + format + types + slop + tests)
 
 build: ## Build sdist and wheel into dist/
 	uv build

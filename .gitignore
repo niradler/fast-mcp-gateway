@@ -27,3 +27,4 @@ gateway.db
 .vscode/
 .claude
 docs/superpowers
+.code-review-graph

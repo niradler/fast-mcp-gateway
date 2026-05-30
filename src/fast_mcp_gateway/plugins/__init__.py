@@ -1,13 +1,9 @@
-"""Plugins: named bundles of gateway extensions.
+"""Plugins: named bundles of gateway extensions applied at ``create_gateway`` time.
 
-A plugin groups hooks (the gateway's primary extension mechanism) and, optionally,
-FastMCP middleware (for around-the-call control such as circuit breaking, retry, or
-sandboxing — things the ``pre_tool_call`` / ``post_tool_call`` seams cannot express
-because they need to wrap execution of the upstream call itself), an admin
-``APIRouter``, ASGI sub-app mounts (e.g. a third-party governance HTTP API), MCP
-meta-tool registration, and async ``setup`` / ``teardown`` bound to the gateway
-lifespan. ``create_gateway`` calls each plugin's ``contributions(ctx)`` — passing a
-:class:`GatewayContext` — when assembling the gateway.
+Bundles hooks, FastMCP middleware (for around-the-call control that hook seams cannot
+express), admin router, ASGI mounts, meta-tool registration, and lifespan
+``setup``/``teardown``. Each plugin returns a :class:`PluginContributions` from its
+``contributions(ctx)`` method.
 """
 
 from __future__ import annotations
@@ -21,8 +17,8 @@ from fastmcp import FastMCP
 from fastmcp.server.middleware import Middleware
 from starlette.types import ASGIApp
 
-from mcp_gateway.hooks import Hooks
-from mcp_gateway.store.base import Store
+from fast_mcp_gateway.hooks import Hooks
+from fast_mcp_gateway.store.base import Store
 
 
 @dataclass
@@ -40,14 +36,11 @@ class GatewayContext:
 
 @dataclass
 class PluginContributions:
-    """Everything a plugin adds to the gateway. Every field is optional.
+    """Everything a plugin adds to the gateway; all fields optional.
 
-    - ``hooks``: merged into the gateway's hook chain (all five seams).
-    - ``middleware``: FastMCP middleware added to the parent server, for control
-      that wraps the upstream call (e.g. circuit breaker / retry / sandbox).
-    - ``admin_router``: mounted under ``<admin_prefix>/<plugin name>``.
-    - ``mounts``: ``(path, asgi_app)`` pairs mounted on the MCP ASGI app.
-    - ``register_tools``: called with the parent ``FastMCP`` to add meta-tools.
+    ``middleware`` wraps the upstream call (e.g. circuit breaker/retry) — use it for
+    control the hook seams cannot express. ``admin_router`` is mounted under
+    ``<admin_prefix>/<plugin name>``; ``register_tools`` receives the parent ``FastMCP``.
     """
 
     hooks: Hooks = field(default_factory=Hooks)

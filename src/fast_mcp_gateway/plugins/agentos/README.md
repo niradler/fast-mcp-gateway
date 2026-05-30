@@ -56,8 +56,8 @@ PyPI. Upstream, `agent-os-kernel` is being consolidated into
 ## Usage
 
 ```python
-from mcp_gateway import SqliteStore, create_gateway
-from mcp_gateway.plugins.agentos import AgtAgentOsPlugin, AgtAgentOsSettings
+from fast_mcp_gateway import SqliteStore, create_gateway
+from fast_mcp_gateway.plugins.agentos import AgtAgentOsPlugin, AgtAgentOsSettings
 
 gateway = create_gateway(
     store=SqliteStore("gateway.db"),

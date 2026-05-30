@@ -96,7 +96,7 @@ uv add fast-mcp-gateway        # or: pip install fast-mcp-gateway
 ```python
 import os
 from fastapi import FastAPI
-from mcp_gateway import ConnectContext, ConnectSettings, Hooks, SqliteStore, create_gateway
+from fast_mcp_gateway import ConnectContext, ConnectSettings, Hooks, SqliteStore, create_gateway
 
 
 async def inject_auth(ctx: ConnectContext) -> ConnectSettings | None:
@@ -159,7 +159,7 @@ args**, **deny**, or return **`REQUIRE_CONFIRMATION`** — which triggers the
 > just hooks — nothing special in the core.
 
 ```python
-from mcp_gateway import Hooks, ToolCallResult, ToolDecision
+from fast_mcp_gateway import Hooks, ToolCallResult, ToolDecision
 
 
 async def block_deletes(ctx) -> ToolCallResult | None:
@@ -207,7 +207,7 @@ ASGI sub-app mounts, meta-tool registration, and async `setup` / `teardown` boun
 the gateway lifespan.
 
 ```python
-from mcp_gateway import create_gateway, SqliteStore
+from fast_mcp_gateway import create_gateway, SqliteStore
 
 gateway = create_gateway(
     store=SqliteStore("gateway.db"),
@@ -221,7 +221,7 @@ returning `PluginContributions`, and `setup` / `teardown` coroutines. The
 callable. These authoring types are top-level exports:
 
 ```python
-from mcp_gateway import Plugin, PluginContributions, GatewayContext
+from fast_mcp_gateway import Plugin, PluginContributions, GatewayContext
 ```
 
 ### Optional: agent-os plugin (experimental)
@@ -250,8 +250,8 @@ uv add "fast-mcp-gateway[agt]"   # from within a uv project — honors the git s
 ```
 
 ```python
-from mcp_gateway import create_gateway, SqliteStore
-from mcp_gateway.plugins.agentos import AgtAgentOsPlugin, AgtAgentOsSettings
+from fast_mcp_gateway import create_gateway, SqliteStore
+from fast_mcp_gateway.plugins.agentos import AgtAgentOsPlugin, AgtAgentOsSettings
 
 gateway = create_gateway(
     store=SqliteStore("gateway.db"),

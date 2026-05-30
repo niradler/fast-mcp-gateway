@@ -1,21 +1,9 @@
 """Builds the persisted tool catalog by introspecting the upstreams.
 
-The catalog is a snapshot of every enabled upstream's tools, rebuilt on each
-``GatewayBuilder.reload``. It is the single source of truth for the gateway's
-``tools/list`` and for the ``search_tools`` / ``describe_tool`` meta-tools, so the
-gateway never has to fan out to upstreams on the request path (only on reload).
-
-Two conversions live here:
-
-- :func:`collect_catalog` — connect to each enabled server, list its tools, and
-  turn them into namespaced :class:`CatalogTool` rows. Failures are isolated per
-  server so one unreachable upstream does not wipe the rest of the catalog.
-- :func:`catalog_tool_to_fastmcp` — rebuild a FastMCP :class:`Tool` from a stored
-  row so ``HookMiddleware`` can answer ``tools/list`` from the snapshot.
-
-The namespaced name is ``"<server.name>_<bare>"`` — the single-underscore join
-FastMCP uses for ``mount(namespace=...)`` and that :mod:`mcp_gateway.access`
-relies on for namespace splitting.
+Catalog rows are namespaced as ``"<server.name>_<bare>"`` — the join FastMCP uses for
+``mount(namespace=...)`` and that :mod:`fast_mcp_gateway.access` relies on. The catalog
+is the gateway's only source for ``tools/list`` and search meta-tools on the request path;
+fan-out to upstreams happens only on reload.
 """
 
 from __future__ import annotations
@@ -29,11 +17,11 @@ from fastmcp.tools.base import Tool
 from fastmcp.utilities.components import get_fastmcp_metadata
 from mcp.types import ToolAnnotations
 
-from mcp_gateway.connect import build_client_factory
-from mcp_gateway.hooks import Hooks
-from mcp_gateway.models import CatalogTool, ServerRecord
+from fast_mcp_gateway.connect import build_client_factory
+from fast_mcp_gateway.hooks import Hooks
+from fast_mcp_gateway.models import CatalogTool, ServerRecord
 
-logger = logging.getLogger("mcp_gateway.catalog")
+logger = logging.getLogger("fast_mcp_gateway.catalog")
 
 
 def catalog_tool_from_mcp(server: ServerRecord, tool: mcp.types.Tool) -> CatalogTool:
@@ -83,13 +71,10 @@ async def _introspect_server(server: ServerRecord, hooks: Hooks) -> list[Catalog
 async def collect_catalog(
     servers: Sequence[ServerRecord], hooks: Hooks
 ) -> tuple[list[CatalogTool], set[str]]:
-    """Introspect every enabled server concurrently and return the combined catalog.
+    """Introspect all enabled servers concurrently; return ``(catalog, failed_ids)``.
 
-    Servers are introspected in parallel, so reload latency is bounded by the
-    slowest single upstream rather than the sum. Returns ``(catalog, failed_ids)``:
-    a server that fails to connect or list its tools is logged and its id collected
-    in ``failed_ids`` so the caller can retain its last-known rows rather than letting
-    a transient blip drop the upstream from discovery.
+    Failures are isolated per server — a transient blip does not wipe the rest.
+    The caller uses ``failed_ids`` to retain last-known rows for unreachable upstreams.
     """
     enabled = [server for server in servers if server.enabled]
     results = await asyncio.gather(

@@ -10,15 +10,15 @@ from typing import Any
 import pytest
 from fastmcp.exceptions import ToolError
 
-from mcp_gateway.access import AccessPolicy
-from mcp_gateway.hooks import (
+from fast_mcp_gateway.access import AccessPolicy
+from fast_mcp_gateway.hooks import (
     ConfirmationContext,
     HookMiddleware,
     Hooks,
     ToolCallResult,
     ToolDecision,
 )
-from mcp_gateway.models import ServerRecord
+from fast_mcp_gateway.models import ServerRecord
 
 
 def make_server_record(

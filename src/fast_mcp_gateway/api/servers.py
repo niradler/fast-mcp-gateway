@@ -1,14 +1,7 @@
 """Admin CRUD router for upstream servers, backed by the :class:`Store`.
 
-Built as a factory so the store and hooks are injected explicitly rather than read
-from global state. The ``/test`` and ``/tools`` endpoints open a live connection to
-the upstream using the same client factory the proxy uses (so ``pre_mcp_connect``
-hooks apply), without mounting it on the gateway.
-
-Store error contract → HTTP mapping:
-
-- ``KeyError`` (no such id) → 404
-- ``ValueError`` (duplicate name) → 409
+``/test`` and ``/tools`` open a live upstream connection (``pre_mcp_connect`` hooks apply)
+without mounting it on the gateway. ``KeyError`` maps to 404, ``ValueError`` to 409.
 """
 
 from __future__ import annotations
@@ -17,10 +10,10 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 
-from mcp_gateway.connect import build_client_factory
-from mcp_gateway.hooks import Hooks
-from mcp_gateway.models import ServerCreate, ServerPatch, ServerRecord
-from mcp_gateway.store.base import Store
+from fast_mcp_gateway.connect import build_client_factory
+from fast_mcp_gateway.hooks import Hooks
+from fast_mcp_gateway.models import ServerCreate, ServerPatch, ServerRecord
+from fast_mcp_gateway.store.base import Store
 
 
 def build_servers_router(store: Store, hooks: Hooks) -> APIRouter:

@@ -1,17 +1,9 @@
 """Per-server and per-group allow/deny glob enforcement.
 
-``AccessPolicy`` is the single authoritative object for deciding which tools
-are visible and callable.  Rules are pre-compiled once per ``rebuild()`` call
-so the per-request path is only dict lookups and ``fnmatch.fnmatchcase`` — no
-I/O, no store access, no recompilation.
-
-``current_group`` is a context variable set per request by the group-scoped MCP
-mount (:class:`mcp_gateway.routing.GroupDispatch`); when unset (the full ``/mcp``
-endpoint) it is ``None`` and no group scoping is applied.
-
-Non-namespaced tools (names that do not match any registered server namespace)
-are always allowed.  This covers gateway-local meta-tools such as
-``search_tools`` that are not proxied from an upstream server.
+``AccessPolicy`` compiles rules once per ``rebuild()`` so the per-request path
+is only dict lookups and ``fnmatch.fnmatchcase`` — no I/O, no recompilation.
+``current_group`` (set by :class:`fast_mcp_gateway.routing.GroupDispatch`) scopes
+requests to a group; non-namespaced tools (gateway-local meta-tools) are always allowed.
 """
 
 from __future__ import annotations
@@ -22,9 +14,9 @@ from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from typing import Any
 
-from mcp_gateway.models import GroupRecord, ServerRecord
+from fast_mcp_gateway.models import GroupRecord, ServerRecord
 
-current_group: ContextVar[str | None] = ContextVar("mcp_gateway_current_group", default=None)
+current_group: ContextVar[str | None] = ContextVar("fast_mcp_gateway_current_group", default=None)
 
 
 @dataclass
@@ -50,15 +42,7 @@ def _matches_any(name: str, patterns: Sequence[str]) -> bool:
 
 
 def _rule_allows(bare: str, allow: Sequence[str], deny: Sequence[str]) -> bool:
-    """Evaluate server-level (or group-level) allow/deny rules.
-
-    Semantics:
-    - deny non-empty AND bare matches any deny pattern → DENIED.
-    - allow non-empty AND bare matches NO allow pattern → DENIED.
-    - Otherwise → ALLOWED.
-
-    Deny always wins.  Empty allow means "allow everything".
-    """
+    """Evaluate allow/deny rules: deny wins; empty allow means allow-all."""
     if deny and _matches_any(bare, deny):
         return False
     return not (allow and not _matches_any(bare, allow))
@@ -75,7 +59,6 @@ class AccessPolicy:
     def __init__(self) -> None:
         self._server_rules: dict[str, _ServerRules] = {}
         self._group_rules: dict[str, _GroupRules] = {}
-        # Sorted longest-first for correct longest-prefix matching.
         self._namespaces_by_len: list[str] = []
 
     def rebuild(self, servers: Sequence[ServerRecord], groups: Sequence[GroupRecord]) -> None:
@@ -84,7 +67,7 @@ class AccessPolicy:
         Must be called with the *full* server list (not just enabled ones) so
         that ``split_namespace`` can recognise every registered namespace.
         """
-        server_by_id: dict[str, str] = {}  # id → name (namespace)
+        server_by_id: dict[str, str] = {}
         server_rules: dict[str, _ServerRules] = {}
 
         for srv in servers:
@@ -102,27 +85,20 @@ class AccessPolicy:
                 deny=list(grp.deny),
             )
 
-        # Longest first so "math2" is tried before "math" for "math2_add".
+        # keep: longest first so "math2" is tried before "math" for "math2_add"
         namespaces_by_len = sorted(server_rules.keys(), key=len, reverse=True)
 
-        # Atomic swap — readers see either the old or the new complete state.
+        # keep: atomic swap — readers see either the old or the new complete state
         self._server_rules = server_rules
         self._group_rules = group_rules
         self._namespaces_by_len = namespaces_by_len
 
     def split_namespace(self, tool_name: str) -> tuple[str | None, str]:
-        """Split a (potentially namespaced) tool name into (namespace, bare).
+        """Longest-prefix match of ``tool_name`` against registered namespaces.
 
-        Uses longest-prefix matching against known server namespaces.  The
-        separator is a single underscore; the namespace must be followed by
-        ``_<something>`` — a tool whose name exactly equals a namespace string
-        is treated as non-namespaced.
-
-        Returns ``(None, tool_name)`` for non-namespaced tools.
-
-        Known limitation: a server named ``search`` or ``describe`` captures the
-        gateway-local ``search_tools`` / ``describe_tool`` meta-tools under this split,
-        so avoid those two names for upstream servers.
+        Returns ``(namespace, bare)``; ``(None, tool_name)`` for non-namespaced tools.
+        Avoid registering servers named ``search`` or ``describe`` — they collide with
+        the gateway-local meta-tools under this split.
         """
         for ns in self._namespaces_by_len:
             prefix = ns + "_"
@@ -131,24 +107,20 @@ class AccessPolicy:
         return None, tool_name
 
     def allows(self, tool_name: str, group: str | None = None) -> bool:
-        """Return True if *tool_name* is allowed, optionally scoped to *group*.
+        """Return True if *tool_name* is permitted, optionally scoped to *group*.
 
-        Non-namespaced tools (no matching server namespace) are always allowed.
-
-        When *group* is provided:
-        - Unknown group → False (empty view).
-        - Tool's namespace not in group's member set → False.
-        - Group's own allow/deny applied on top of (not instead of) server rules.
+        Non-namespaced tools are always allowed. When *group* is given: unknown group
+        or a namespace not in the group's member set returns False; group allow/deny
+        stacks on top of server rules (does not replace them).
         """
         ns, bare = self.split_namespace(tool_name)
 
         if ns is None:
-            # Non-namespaced tool (e.g. gateway meta-tool) — always visible.
             return True
 
         server_rule = self._server_rules.get(ns)
         if server_rule is None:
-            # Defensive: a namespace from split_namespace is always in server_rules.
+            # keep: a namespace from split_namespace is always in server_rules
             return True
 
         if not _rule_allows(bare, server_rule.allow, server_rule.deny):

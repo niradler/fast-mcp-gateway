@@ -2,13 +2,13 @@
 
 Public API:
 
-    from mcp_gateway import create_gateway, Hooks, SqliteStore
+    from fast_mcp_gateway import create_gateway, Hooks, SqliteStore
 
 See ``create_gateway`` for assembling a gateway and mounting it on a FastAPI app.
 """
 
-from mcp_gateway.app import Gateway, create_gateway
-from mcp_gateway.hooks import (
+from fast_mcp_gateway.app import Gateway, create_gateway
+from fast_mcp_gateway.hooks import (
     ConfirmationContext,
     ConnectContext,
     ConnectSettings,
@@ -16,7 +16,7 @@ from mcp_gateway.hooks import (
     ToolCallResult,
     ToolDecision,
 )
-from mcp_gateway.models import (
+from fast_mcp_gateway.models import (
     GroupCreate,
     GroupPatch,
     GroupRecord,
@@ -25,8 +25,8 @@ from mcp_gateway.models import (
     ServerRecord,
     Transport,
 )
-from mcp_gateway.plugins import GatewayContext, Plugin, PluginContributions
-from mcp_gateway.store import SqliteStore, Store
+from fast_mcp_gateway.plugins import GatewayContext, Plugin, PluginContributions
+from fast_mcp_gateway.store import SqliteStore, Store
 
 __version__ = "0.0.1"
 

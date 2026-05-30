@@ -1,7 +1,7 @@
 """The ``Store`` protocol: the gateway's only persistence dependency.
 
 Any object implementing this protocol can back the gateway. The default
-implementation is :class:`mcp_gateway.store.sqlite.SqliteStore`; Postgres, Redis,
+implementation is :class:`fast_mcp_gateway.store.sqlite.SqliteStore`; Postgres, Redis,
 or in-memory stores are drop-in replacements with no core changes.
 """
 
@@ -10,7 +10,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Protocol, runtime_checkable
 
-from mcp_gateway.models import (
+from fast_mcp_gateway.models import (
     CatalogTool,
     GroupCreate,
     GroupPatch,

@@ -1,14 +1,7 @@
-"""Default single-file SQLite store.
+"""Default single-file SQLite store backed by a single long-lived ``aiosqlite`` connection.
 
-Zero-setup persistence for the registry. Implements the :class:`Store` protocol
-over a single long-lived ``aiosqlite`` connection (so ``:memory:`` databases survive
-for the lifetime of the store). JSON-encoded columns hold the list/dict fields.
-
-Domain errors raised by this store, kept backend-agnostic so the admin API can map
-them without importing ``sqlite3``:
-
-- ``KeyError`` — no record with the given id.
-- ``ValueError`` — a uniqueness constraint (duplicate name) was violated.
+JSON-encoded columns hold list/dict fields. Domain errors are backend-agnostic:
+``KeyError`` for missing id, ``ValueError`` for duplicate name.
 """
 
 from __future__ import annotations
@@ -23,7 +16,7 @@ from collections.abc import Sequence
 
 import aiosqlite
 
-from mcp_gateway.models import (
+from fast_mcp_gateway.models import (
     CatalogTool,
     GroupCreate,
     GroupPatch,
@@ -34,7 +27,7 @@ from mcp_gateway.models import (
     Transport,
 )
 
-logger = logging.getLogger("mcp_gateway.store.sqlite")
+logger = logging.getLogger("fast_mcp_gateway.store.sqlite")
 
 _CREATE_SERVERS = """
 CREATE TABLE IF NOT EXISTS servers (

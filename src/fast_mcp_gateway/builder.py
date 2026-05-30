@@ -1,15 +1,8 @@
 """Turns the registry into mounted proxies on the parent gateway server.
 
-For each enabled server record the builder creates a FastMCP proxy (a
-``FastMCPProxy`` driven by our :func:`build_client_factory`) and mounts it under the
-server's name as a namespace. ``reload`` rebuilds all mounts from the current store
-contents — the gateway's coarse update model (no live hot-swap in v1).
-
-FastMCP has no ``unmount``; mounted servers are appended to ``mcp.providers`` (a
-plain list, with the gateway's own static provider(s) first). The builder snapshots
-that baseline at construction and, on every ``reload``, resets the list to the
-baseline before re-mounting — so reloads are idempotent and dropped/disabled servers
-disappear.
+FastMCP has no ``unmount``; the builder snapshots ``mcp.providers`` at construction
+and resets to that baseline on every ``reload`` before re-mounting, so dropped or
+disabled servers disappear and reloads are idempotent.
 """
 
 from __future__ import annotations
@@ -21,13 +14,13 @@ from fastmcp import FastMCP
 from fastmcp.server.providers.base import Provider
 from fastmcp.server.providers.proxy import FastMCPProxy
 
-from mcp_gateway.access import AccessPolicy
-from mcp_gateway.catalog import collect_catalog
-from mcp_gateway.connect import build_client_factory
-from mcp_gateway.hooks import Hooks
-from mcp_gateway.store.base import Store
+from fast_mcp_gateway.access import AccessPolicy
+from fast_mcp_gateway.catalog import collect_catalog
+from fast_mcp_gateway.connect import build_client_factory
+from fast_mcp_gateway.hooks import Hooks
+from fast_mcp_gateway.store.base import Store
 
-logger = logging.getLogger("mcp_gateway.builder")
+logger = logging.getLogger("fast_mcp_gateway.builder")
 
 
 class GatewayBuilder:
@@ -44,30 +37,18 @@ class GatewayBuilder:
         self._reload_lock = asyncio.Lock()
 
     async def reload(self) -> None:
-        """Rebuild all proxy mounts from the current registry.
+        """Rebuild proxy mounts, access policy, and tool catalog from the current registry.
 
-        Resets to the baseline providers, then mounts a proxy per enabled server
-        under its name as a namespace.  Also rebuilds the access policy from the
-        full server + group lists so namespace splitting and allow/deny rules are
-        current after every reload, and refreshes the persisted tool catalog by
-        introspecting the enabled upstreams (the source for ``tools/list`` and the
-        search meta-tools).
-
-        Serialized so concurrent reloads (e.g. a ``POST /admin/reload`` racing a
-        plugin-triggered one) cannot interleave their store reads, provider mutation,
-        and catalog replacement and leave the gateway in a mixed state.
-
-        The catalog is rewritten in place, so a ``tools/list`` / ``search_tools`` request
-        that lands during the brief rewrite may see a partial catalog (and therefore a
-        partial group-scoped view); it is transient and a retry returns the full set.
+        Serialized via ``_reload_lock`` so concurrent reloads cannot interleave store
+        reads, provider mutation, and catalog replacement. A ``tools/list`` landing
+        during catalog rewrite may see a transient partial view; a retry returns the full set.
         """
         async with self._reload_lock:
             servers = await self.store.list_servers()
             groups = await self.store.list_groups()
 
             if self.policy is not None:
-                # Rebuild from ALL servers (not just enabled) so every namespace is
-                # known for split_namespace, even if the server is currently disabled.
+                # keep: rebuild from ALL servers (even disabled) for split_namespace
                 self.policy.rebuild(servers, groups)
 
             self.mcp.providers[:] = self._baseline_providers

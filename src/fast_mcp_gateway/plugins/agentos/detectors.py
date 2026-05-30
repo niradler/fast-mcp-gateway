@@ -1,15 +1,9 @@
 """agent-os detector/scanner hooks contributed by :class:`AgtAgentOsPlugin`.
 
-Quick-win agent-os capabilities mapped onto the gateway's seams:
-
-- ``pre_tool_call``: prompt-injection detection on arguments, semantic-policy intent
-  classification — each denies the call when it fires.
-- ``post_tool_call``: response threat scanning (blocks unsafe responses) and credential
-  redaction (rewrites secrets out of the response).
-- ``pre_mcp_connect``: egress policy (refuses upstreams outside an allowlist).
-
-Each detector is built once and reused across calls. They are synchronous and cheap
-(regex / classifier), so they run inline in the async hooks.
+``pre_tool_call``: prompt-injection detection and semantic-policy classification.
+``post_tool_call``: response threat scan and credential redaction.
+``pre_mcp_connect``: egress policy (refuses upstreams outside an allowlist).
+Detectors are built once per plugin instance and run inline (synchronous, cheap).
 """
 
 from __future__ import annotations
@@ -23,7 +17,7 @@ from agent_os.prompt_injection import DetectionConfig, PromptInjectionDetector
 from agent_os.semantic_policy import PolicyDenied, SemanticPolicyEngine
 from fastmcp.exceptions import ToolError
 
-from mcp_gateway.hooks import (
+from fast_mcp_gateway.hooks import (
     ConnectContext,
     ConnectHook,
     PostToolCallHook,
@@ -31,7 +25,7 @@ from mcp_gateway.hooks import (
     ToolCallResult,
     ToolDecision,
 )
-from mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
 
 def _args_text(arguments: dict[str, Any] | None) -> str:
@@ -143,6 +137,6 @@ def make_egress_hook(settings: AgtAgentOsSettings) -> ConnectHook:
             raise PermissionError(
                 f"Egress denied for upstream {context.server.url!r}: {decision.reason}"
             )
-        return None
+        return
 
     return egress_check

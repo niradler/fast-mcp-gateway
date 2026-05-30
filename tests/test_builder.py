@@ -5,11 +5,11 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
-from mcp_gateway.access import AccessPolicy
-from mcp_gateway.builder import GatewayBuilder
-from mcp_gateway.hooks import Hooks
-from mcp_gateway.models import ServerCreate
-from mcp_gateway.store.sqlite import SqliteStore
+from fast_mcp_gateway.access import AccessPolicy
+from fast_mcp_gateway.builder import GatewayBuilder
+from fast_mcp_gateway.hooks import Hooks
+from fast_mcp_gateway.models import ServerCreate
+from fast_mcp_gateway.store.sqlite import SqliteStore
 
 
 def server(
@@ -108,7 +108,7 @@ async def test_reload_updates_policy_on_second_reload() -> None:
     # Initially no rules — all allowed
     assert policy.allows("svc_delete_all") is True
 
-    from mcp_gateway.models import ServerPatch
+    from fast_mcp_gateway.models import ServerPatch
 
     await store.update_server(rec.id, ServerPatch(deny=["delete_*"]))
     await builder.reload()

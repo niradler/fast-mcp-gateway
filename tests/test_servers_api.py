@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mcp_gateway import Hooks, SqliteStore, create_gateway
+from fast_mcp_gateway import Hooks, SqliteStore, create_gateway
 
 
 @pytest.fixture

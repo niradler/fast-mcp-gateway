@@ -11,29 +11,24 @@ from __future__ import annotations
 import contextlib
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, FastAPI, params
 from fastmcp import FastMCP
+from fastmcp.server.http import StarletteWithLifespan
+from fastmcp.tools.base import Tool
+from starlette.applications import Starlette
+from starlette.types import Lifespan
 
-from mcp_gateway.access import AccessPolicy
-from mcp_gateway.api.groups import build_groups_router
-from mcp_gateway.api.servers import build_servers_router
-from mcp_gateway.builder import GatewayBuilder
-from mcp_gateway.catalog import catalog_tool_to_fastmcp
-from mcp_gateway.hooks import HookMiddleware, Hooks, merge_hooks
-from mcp_gateway.plugins import GatewayContext
-from mcp_gateway.routing import GroupDispatch
-from mcp_gateway.search import register_search_tools
-from mcp_gateway.store.base import Store
-
-if TYPE_CHECKING:
-    from fastmcp.server.http import StarletteWithLifespan
-    from fastmcp.tools.base import Tool
-    from starlette.applications import Starlette
-    from starlette.types import Lifespan
-
-    from mcp_gateway.plugins import Plugin
+from fast_mcp_gateway.access import AccessPolicy
+from fast_mcp_gateway.api.groups import build_groups_router
+from fast_mcp_gateway.api.servers import build_servers_router
+from fast_mcp_gateway.builder import GatewayBuilder
+from fast_mcp_gateway.catalog import catalog_tool_to_fastmcp
+from fast_mcp_gateway.hooks import HookMiddleware, Hooks, merge_hooks
+from fast_mcp_gateway.plugins import GatewayContext, Plugin
+from fast_mcp_gateway.routing import GroupDispatch
+from fast_mcp_gateway.search import register_search_tools
+from fast_mcp_gateway.store.base import Store
 
 
 @dataclass
@@ -76,17 +71,9 @@ class Gateway:
     ) -> None:
         """Mount the MCP app and admin router onto an existing FastAPI app.
 
-        The host ``app`` must already have been created with
-        ``FastAPI(lifespan=gateway.lifespan)``.
-
-        Exposes the full catalog at ``mcp_path`` and a per-group view at
-        ``{mcp_path}/{group_segment}/{group}`` (e.g. ``/mcp/g/analytics``) served
-        by the same shared MCP app. The group mount is registered first so its
-        more specific prefix matches before the full mount.
-
-        The admin CRUD/reload API performs no authentication of its own; pass
-        ``admin_dependencies`` (FastAPI dependencies such as ``[Depends(require_admin)]``)
-        to guard every admin route, or place the mount behind external auth.
+        The host ``app`` must already have been created with ``FastAPI(lifespan=gateway.lifespan)``.
+        Group view is mounted before the full catalog mount so its specific prefix wins.
+        ``admin_dependencies`` guards every admin route (the router itself has no auth).
         """
         app.include_router(self.admin_router, prefix=admin_prefix, dependencies=admin_dependencies)
         group_mount = f"{mcp_path}/{group_segment}"
@@ -104,15 +91,10 @@ def create_gateway(
 ) -> Gateway:
     """Build a :class:`Gateway` over ``store`` with the given ``hooks`` and ``plugins``.
 
-    Mounts an empty parent FastMCP server (no upstreams until :meth:`Gateway.reload`)
-    with the hook middleware and meta-tools attached, alongside the admin CRUD router.
-    Each plugin's :class:`~mcp_gateway.plugins.PluginContributions` is applied in
-    registration order: hooks are merged, FastMCP middleware is added, meta-tools are
-    registered, the admin router is extended, and ASGI sub-apps are mounted. Plugin
-    ``setup`` / ``teardown`` are driven from the gateway lifespan.
-
-    ``transport_path`` is the MCP transport's own sub-path inside the ASGI app; it is
-    distinct from the ``mcp_path`` mount prefix chosen in :meth:`Gateway.install`.
+    Wires hook middleware, meta-tools, and admin router; merges plugin contributions
+    (hooks, middleware, tools, router, ASGI mounts) in registration order; drives plugin
+    ``setup``/``teardown`` from the lifespan. ``transport_path`` is the MCP transport
+    sub-path inside the ASGI app, distinct from the ``mcp_path`` in :meth:`Gateway.install`.
     """
     base_hooks = hooks or Hooks()
     policy = AccessPolicy()

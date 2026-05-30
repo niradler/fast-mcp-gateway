@@ -1,12 +1,7 @@
-"""Builds the per-server client factory that FastMCP's proxy uses to connect.
+"""Builds the per-server async client factory that FastMCP's proxy uses to connect.
 
-The factory runs the ``pre_mcp_connect`` hooks and merges their returned headers
-over the server record's static headers, then constructs a ``ProxyClient`` for the
-upstream. Dynamic/auth headers therefore win over static ones, and a hook may also
-shorten/extend the per-server timeout.
-
-The returned factory is async: FastMCP's proxy accepts a sync or async client
-factory, and running the hooks requires awaiting.
+Runs ``pre_mcp_connect`` hooks on each call; hook headers layer over static ones
+(dynamic/auth headers win). An async factory is required because hooks must be awaited.
 """
 
 from __future__ import annotations
@@ -18,8 +13,8 @@ from fastmcp.client.transports.http import StreamableHttpTransport
 from fastmcp.client.transports.sse import SSETransport
 from fastmcp.server.providers.proxy import ProxyClient
 
-from mcp_gateway.hooks import ConnectContext, Hooks
-from mcp_gateway.models import ServerRecord, Transport
+from fast_mcp_gateway.hooks import ConnectContext, Hooks
+from fast_mcp_gateway.models import ServerRecord, Transport
 
 ClientFactory = Callable[[], Awaitable[ProxyClient[Any]]]
 

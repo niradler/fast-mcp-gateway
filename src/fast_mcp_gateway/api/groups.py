@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
-from mcp_gateway.models import GroupCreate, GroupPatch, GroupRecord
-from mcp_gateway.store.base import Store
+from fast_mcp_gateway.models import GroupCreate, GroupPatch, GroupRecord
+from fast_mcp_gateway.store.base import Store
 
 
 def build_groups_router(store: Store) -> APIRouter:

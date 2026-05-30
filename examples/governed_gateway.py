@@ -36,7 +36,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 
-from mcp_gateway import (
+from fast_mcp_gateway import (
     ConnectContext,
     ConnectSettings,
     GroupCreate,
