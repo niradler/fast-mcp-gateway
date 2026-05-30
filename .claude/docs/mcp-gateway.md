@@ -153,11 +153,52 @@ you want it pulled forward.
 
 **Milestone 3 is complete** (3a server allow/deny, 3b enforcement, 3c group endpoints).
 
-## Next (Milestone 4)
+## State (Milestone 4 — search meta-tools + SQLite catalog: DONE)
 
-`search_tools` / `describe_tool` meta-tools + a reload-invalidated catalog cache. Then
-M5 (reference hooks, docs, packaging dry-run — do NOT publish).
+**Decision (Nir): the catalog cache IS the SQLite store, not an in-memory layer.** The
+persisted catalog is the single source of truth for both `tools/list` and search —
+refreshed on `reload`, surviving restart, and giving FTS5 search "for free" (the staleness
+profile is identical to a reload-invalidated in-memory cache, so it's a strict win).
 
-NOTE: a parallel agent is building the **plugins** feature (`src/mcp_gateway/plugins.py`,
-`tests/test_plugins.py`, `merge_hooks` in `hooks.py`, plugin wiring in `create_gateway`).
-M3C coexists cleanly with it; the combined gate is green (107 pass).
+- **`models.CatalogTool`:** one upstream tool captured in the snapshot — namespaced `name`
+  (`"<ns>_<bare>"`), `bare_name`, `server_id`, `parameters`/`output_schema`/`tags`/
+  `annotations` — enough to rebuild the MCP wire form without re-querying upstreams.
+- **`Store` protocol + `SqliteStore`:** `replace_catalog` / `list_catalog` /
+  `search_catalog` / `get_catalog_tool`. New `catalog_tools` table + **FTS5** virtual table
+  `catalog_fts(name, bare_name, description, tags)`; search ranks by `bm25`. FTS5 presence
+  is probed at `initialize()`; if absent, `search_catalog` falls back to an in-Python
+  weighted-overlap scan (`_rank_by_overlap`). Free-text queries are sanitized to `[a-z0-9]`
+  prefix tokens OR'd together (no FTS5 operator injection); empty/token-less queries browse.
+- **`catalog.py`:** `collect_catalog` introspects every enabled upstream **concurrently**
+  (`asyncio.gather`, per-server failures isolated — a dead upstream contributes nothing,
+  reload latency bounded by the slowest single upstream). `catalog_tool_to_fastmcp` rebuilds
+  a FastMCP `Tool` for the list path (base `Tool` is instantiable; `run` is never called).
+- **`builder.reload()`:** after mounting, `collect_catalog(servers, hooks)` →
+  `store.replace_catalog(...)`. So reload now does bounded network I/O (introspection).
+- **`HookMiddleware.on_list_tools`:** when a `catalog` provider is wired it serves the
+  snapshot instead of a live upstream fan-out (falls back to `call_next` when unset — keeps
+  pre-M4 tests intact). `app._catalog_tools` merges `mcp.local_provider.list_tools()` (the
+  local meta-tools) with the persisted upstream snapshot, so the meta-tools stay
+  discoverable in `tools/list` (regression caught in e2e + `test_tools_list_merges_*`).
+- **`search.py`:** `search_tools(query, limit)` (compact name/description/tags) and
+  `describe_tool(name)` (full schema) read the store, then apply `AccessPolicy.filter_tools`
+  for the request's group — a denied/out-of-scope tool reads as "not found" (no leak).
+- **Tests:** `test_search.py` (9, via in-process `Client`), `test_store.py` +13 catalog
+  tests. Fixed an interpreter-shutdown hang: aiosqlite worker threads are **non-daemon**, so
+  the `store` fixtures and search tests must `close()` their stores. Full suite **135 pass**.
+- **E2E:** `.claude/scripts/m4_e2e.py` — live uvicorn upstream (`add`/`subtract`/`delete_all`,
+  registered `deny=["delete_*"]`). Proves reload introspects + persists the catalog;
+  `tools/list` (from snapshot) shows `math_add`/`math_subtract` + meta-tools, hides
+  `math_delete_all`; `search_tools`/`describe_tool` respect the policy with no leak.
+
+Also fixed `tests/test_routing.py` ASGI `send` annotations (`dict` → `MutableMapping`) to
+satisfy the gate after a starlette type tightening.
+
+## Next (Milestone 5)
+
+Reference hooks (audit, allow/deny, confirmation), docs, packaging dry-run — do NOT publish.
+
+NOTE: a parallel agent is building the **plugins** feature (`plugins.py`, `test_plugins.py`,
+`test_agt_plugin.py`, `merge_hooks`, plugin wiring in `create_gateway`). M4 coexists with it,
+but those two **test files currently have mypy errors** (their WIP) — the full `mypy` gate is
+red solely on `test_plugins.py` + `test_agt_plugin.py`; M4 code/tests are clean.

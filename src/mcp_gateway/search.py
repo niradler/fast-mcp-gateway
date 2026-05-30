@@ -45,9 +45,7 @@ def _preview(description: str | None) -> str:
     return first_line
 
 
-def register_search_tools(
-    mcp: FastMCP, store: Store, policy: AccessPolicy | None = None
-) -> None:
+def register_search_tools(mcp: FastMCP, store: Store, policy: AccessPolicy | None = None) -> None:
     """Register the ``search_tools`` / ``describe_tool`` meta-tools on ``mcp``."""
 
     @mcp.tool(

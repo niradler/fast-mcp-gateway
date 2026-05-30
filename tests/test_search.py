@@ -9,13 +9,14 @@ scopes results so denied tools are neither searchable nor describable.
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
 
 from mcp_gateway.access import AccessPolicy
+from mcp_gateway.app import create_gateway
 from mcp_gateway.models import CatalogTool, ServerRecord
 from mcp_gateway.search import register_search_tools
 from mcp_gateway.store.sqlite import SqliteStore
@@ -87,7 +88,7 @@ async def _gateway(policy: AccessPolicy | None) -> FastMCP:
 
 async def _search(client: Client[Any], query: str = "", limit: int = 10) -> list[dict[str, Any]]:
     result = await client.call_tool("search_tools", {"query": query, "limit": limit})
-    return result.data
+    return cast("list[dict[str, Any]]", result.data)
 
 
 # ---------------------------------------------------------------------------
@@ -166,3 +167,21 @@ async def test_describe_denied_tool_reads_as_not_found() -> None:
     async with Client(mcp) as client:
         with pytest.raises(ToolError, match="No tool named"):
             await client.call_tool("describe_tool", {"name": "math_delete_all"})
+
+
+# ---------------------------------------------------------------------------
+# tools/list is served from the snapshot but still surfaces local meta-tools
+# ---------------------------------------------------------------------------
+
+
+async def test_tools_list_merges_meta_tools_with_snapshot() -> None:
+    """The gateway's own meta-tools stay discoverable alongside the upstream snapshot."""
+    store = SqliteStore(":memory:")
+    await store.initialize()
+    await store.replace_catalog(_catalog())
+    _OPEN_STORES.append(store)
+    gateway = create_gateway(store)
+    async with Client(gateway.mcp) as client:
+        names = {t.name for t in await client.list_tools()}
+    assert {"search_tools", "describe_tool"} <= names
+    assert {"math_add", "math_delete_all", "text_upper"} <= names

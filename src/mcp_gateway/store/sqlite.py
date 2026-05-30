@@ -352,10 +352,7 @@ class SqliteStore:
                 await self._conn.executemany(
                     "INSERT INTO catalog_fts (name, bare_name, description, tags) "
                     "VALUES (?, ?, ?, ?)",
-                    [
-                        (t.name, t.bare_name, t.description or "", " ".join(t.tags))
-                        for t in tools
-                    ],
+                    [(t.name, t.bare_name, t.description or "", " ".join(t.tags)) for t in tools],
                 )
         await self._conn.commit()
 

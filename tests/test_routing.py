@@ -8,6 +8,7 @@ app.  Full-stack propagation into the hook middleware is proven by the live
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from typing import Any
 
 from mcp_gateway.access import current_group
@@ -63,7 +64,7 @@ async def test_dispatch_sets_group_and_folds_segment_into_root_path() -> None:
     async def receive() -> dict[str, Any]:
         return {"type": "http.request"}
 
-    async def send(_: dict[str, Any]) -> None:
+    async def send(_: MutableMapping[str, Any]) -> None:
         return None
 
     # Mirrors what Starlette's Mount("/mcp/g") passes: full path + root_path prefix.
@@ -83,7 +84,7 @@ async def test_dispatch_resolves_root_without_trailing_slash() -> None:
     async def receive() -> dict[str, Any]:
         return {"type": "http.request"}
 
-    async def send(_: dict[str, Any]) -> None:
+    async def send(_: MutableMapping[str, Any]) -> None:
         return None
 
     scope = {"type": "http", "path": "/mcp/g/analytics", "root_path": "/mcp/g"}
@@ -101,7 +102,7 @@ async def test_dispatch_resets_group_after_request() -> None:
     async def receive() -> dict[str, Any]:
         return {"type": "http.request"}
 
-    async def send(_: dict[str, Any]) -> None:
+    async def send(_: MutableMapping[str, Any]) -> None:
         return None
 
     assert current_group.get() is None
@@ -116,7 +117,7 @@ async def test_dispatch_does_not_mutate_original_scope() -> None:
     async def receive() -> dict[str, Any]:
         return {"type": "http.request"}
 
-    async def send(_: dict[str, Any]) -> None:
+    async def send(_: MutableMapping[str, Any]) -> None:
         return None
 
     scope = {"type": "http", "path": "/mcp/g/analytics/", "root_path": "/mcp/g"}
@@ -136,12 +137,12 @@ async def test_dispatch_lifespan_is_noop() -> None:
     shim = GroupDispatch(downstream, transport_path="/")
 
     messages = iter([{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}])
-    sent: list[dict[str, Any]] = []
+    sent: list[MutableMapping[str, Any]] = []
 
     async def receive() -> dict[str, Any]:
         return next(messages)
 
-    async def send(message: dict[str, Any]) -> None:
+    async def send(message: MutableMapping[str, Any]) -> None:
         sent.append(message)
 
     await shim({"type": "lifespan"}, receive, send)

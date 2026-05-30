@@ -73,9 +73,6 @@ class ConfirmationContext(BaseModel):
     reason: str | None = None
 
 
-# Returns the gateway's tool catalog as FastMCP tools. When supplied to
-# HookMiddleware it replaces the live upstream fan-out on tools/list with the
-# persisted snapshot (see app.create_gateway).
 CatalogProvider = Callable[[], Awaitable[Sequence[Tool]]]
 
 # Hook function signatures. All hooks are async.

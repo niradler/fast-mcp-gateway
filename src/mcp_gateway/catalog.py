@@ -20,6 +20,7 @@ relies on for namespace splitting.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
 
@@ -80,17 +81,22 @@ async def _introspect_server(server: ServerRecord, hooks: Hooks) -> list[Catalog
 
 
 async def collect_catalog(servers: Sequence[ServerRecord], hooks: Hooks) -> list[CatalogTool]:
-    """Introspect every enabled server and return the combined namespaced catalog.
+    """Introspect every enabled server concurrently and return the combined catalog.
 
-    A server that fails to connect or list its tools is logged and skipped, so a
-    single bad upstream contributes nothing rather than breaking the whole reload.
+    Servers are introspected in parallel, so reload latency is bounded by the
+    slowest single upstream rather than the sum. A server that fails to connect or
+    list its tools is logged and skipped, so a single bad upstream contributes
+    nothing rather than breaking the whole reload.
     """
+    enabled = [server for server in servers if server.enabled]
+    results = await asyncio.gather(
+        *(_introspect_server(server, hooks) for server in enabled),
+        return_exceptions=True,
+    )
     catalog: list[CatalogTool] = []
-    for server in servers:
-        if not server.enabled:
-            continue
-        try:
-            catalog.extend(await _introspect_server(server, hooks))
-        except Exception:
+    for server, result in zip(enabled, results, strict=True):
+        if isinstance(result, BaseException):
             logger.warning("Catalog introspection failed for server %r; skipping.", server.name)
+            continue
+        catalog.extend(result)
     return catalog

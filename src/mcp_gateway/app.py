@@ -118,7 +118,9 @@ def create_gateway(
     effective_hooks = merge_hooks(base_hooks, *(c.hooks for c in contributions))
 
     async def _catalog_tools() -> Sequence[Tool]:
-        return [catalog_tool_to_fastmcp(t) for t in await store.list_catalog()]
+        local = await mcp.local_provider.list_tools()
+        persisted = [catalog_tool_to_fastmcp(t) for t in await store.list_catalog()]
+        return [*local, *persisted]
 
     mcp.add_middleware(HookMiddleware(effective_hooks, policy, catalog=_catalog_tools))
     for c in contributions:
