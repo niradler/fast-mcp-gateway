@@ -61,18 +61,15 @@ class PluginContributions:
 
 @runtime_checkable
 class Plugin(Protocol):
-    """A named extension bundle applied at ``create_gateway`` time."""
+    """A named extension bundle applied at ``create_gateway`` time.
+
+    Only ``name`` and ``contributions`` are required. A plugin may additionally define
+    async ``setup`` / ``teardown`` methods; when present, the gateway lifespan runs them
+    at startup and shutdown (load config / open sinks, then flush / close).
+    """
 
     name: str
 
     def contributions(self, context: GatewayContext) -> PluginContributions:
         """Return the hooks / middleware / endpoints / tools this plugin adds."""
-        ...
-
-    async def setup(self) -> None:
-        """Run once at gateway startup (load config, open sinks, fetch feeds)."""
-        ...
-
-    async def teardown(self) -> None:
-        """Run once at gateway shutdown (flush sinks, close connections)."""
         ...
