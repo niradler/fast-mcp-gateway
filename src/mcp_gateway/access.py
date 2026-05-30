@@ -119,6 +119,10 @@ class AccessPolicy:
         is treated as non-namespaced.
 
         Returns ``(None, tool_name)`` for non-namespaced tools.
+
+        Known limitation: a server named ``search`` or ``describe`` captures the
+        gateway-local ``search_tools`` / ``describe_tool`` meta-tools under this split,
+        so avoid those two names for upstream servers.
         """
         for ns in self._namespaces_by_len:
             prefix = ns + "_"

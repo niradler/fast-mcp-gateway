@@ -19,11 +19,11 @@ many upstream MCP servers  ──►  fast-mcp-gateway  ──►  one governed 
 ```
 
 > [!NOTE]
-> **Status: alpha, under active development.** Server registry, the proxy builder,
-> the full hook pipeline, groups with allow/deny, group-scoped endpoints, and the
-> plugin system are implemented and tested. The `search_tools` / `describe_tool`
-> meta-tools and the bundled reference hooks are still in progress — see the
-> [roadmap](#roadmap).
+> **Status: 0.0.1, under active development.** This is the first public release and
+> APIs may change. Server registry, the proxy builder, the full hook pipeline, groups
+> with allow/deny, group-scoped endpoints, the plugin system, and the `search_tools` /
+> `describe_tool` meta-tools are implemented and tested. The bundled reference hooks are
+> still in progress — see the [roadmap](#roadmap).
 
 ## Why
 
@@ -218,9 +218,17 @@ gateway = create_gateway(
 A plugin implements the `Plugin` protocol: a `name`, a `contributions(context)` method
 returning `PluginContributions`, and `setup` / `teardown` coroutines. The
 `GatewayContext` it receives exposes the `store`, the parent `mcp`, and a `reload`
-callable.
+callable. These authoring types are top-level exports:
 
-### Optional: agent-os plugin
+```python
+from mcp_gateway import Plugin, PluginContributions, GatewayContext
+```
+
+### Optional: agent-os plugin (experimental)
+
+> [!WARNING]
+> The `agt` integration is **experimental**. Its upstream dependency is not yet on
+> PyPI, so it installs only inside a uv project (see the install note below).
 
 The `agt` extra wires Microsoft's
 [agent-governance-toolkit](https://github.com/microsoft/agent-governance-toolkit)
@@ -238,7 +246,7 @@ policy rejects. Additional agent-os capabilities are opt-in toggles on `AgtAgent
 | `enable_egress_policy` (+ `egress_rules`) | `pre_mcp_connect` | refuse upstreams whose URL is outside the allowlist |
 
 ```bash
-pip install "fast-mcp-gateway[agt]"
+uv add "fast-mcp-gateway[agt]"   # from within a uv project — honors the git source
 ```
 
 ```python
@@ -262,9 +270,13 @@ gateway = create_gateway(
 ```
 
 > [!NOTE]
-> The `agt` extra is sourced from the agent-governance-toolkit GitHub monorepo until
-> `agent-os-kernel` 4.x is published to PyPI. The gateway and the plugin system work
-> fully **without** it — only this one integration needs it.
+> The `agt` extra is sourced from the agent-governance-toolkit GitHub monorepo (via uv
+> `[tool.uv.sources]`) until `agent-os-kernel` 4.x is published to PyPI. Because of that
+> git source, install it from within a uv project (`uv add "fast-mcp-gateway[agt]"`),
+> which honors the source; a plain `pip install "fast-mcp-gateway[agt]"` cannot resolve
+> the dependency and will fail until it lands on PyPI. Upstream, `agent-os-kernel` is
+> being renamed/consolidated to `agent-governance-toolkit-core`. The gateway and the
+> plugin system work fully **without** the extra — only this one integration needs it.
 
 ## Admin API
 
@@ -281,6 +293,13 @@ gateway = create_gateway(
 
 CRUD writes to the `Store`; `POST /admin/reload` (or `await gateway.reload()`) rebuilds
 the proxy mounts. There is no live hot-swap in v1 — simple and lean.
+
+> [!WARNING]
+> The `/admin` API is **unauthenticated by default** and mutates the registry —
+> registering upstreams, rewriting allow/deny lists, injecting connection headers, and
+> triggering reload. The host app **must** protect it. Pass FastAPI dependencies via
+> `Gateway.install(app, admin_dependencies=[Depends(require_admin)])` to guard the admin
+> router, and/or place it behind reverse-proxy or network-level auth.
 
 ## Store
 
@@ -323,7 +342,7 @@ all targets.
 | 2 | `HookMiddleware`: `pre_tool_call` / `post_tool_call` / `pre_list_tools` | done |
 | 3 | Groups + per-server/group allow-deny + group-scoped `/mcp/g/{group}` endpoints | done |
 | — | Plugin system + agent-os policy integration | done |
-| 4 | `search_tools` / `describe_tool` meta-tools + catalog cache | in progress |
+| 4 | `search_tools` / `describe_tool` meta-tools + catalog cache | done |
 | 5 | Reference hooks (audit, allow/deny, confirmation), docs, packaging | planned |
 
 ## License
