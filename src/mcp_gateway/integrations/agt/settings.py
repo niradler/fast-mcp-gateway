@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class AgtSettings:
-    """Tunables for :class:`~mcp_gateway.integrations.agt.plugin.AgtPolicyPlugin`.
+    """Tunables for :class:`~mcp_gateway.integrations.agt.plugin.AgtAgentOsPlugin`.
 
     Supply policies one of two ways (``policy_dir`` takes precedence):
 

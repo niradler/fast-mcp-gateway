@@ -233,11 +233,11 @@ pip install "fast-mcp-gateway[agt]"
 
 ```python
 from mcp_gateway import create_gateway, SqliteStore
-from mcp_gateway.integrations.agt import AgtPolicyPlugin, AgtSettings
+from mcp_gateway.integrations.agt import AgtAgentOsPlugin, AgtSettings
 
 gateway = create_gateway(
     store=SqliteStore("gateway.db"),
-    plugins=[AgtPolicyPlugin(AgtSettings(policy_dir="./policies", fail_closed=True))],
+    plugins=[AgtAgentOsPlugin(AgtSettings(policy_dir="./policies", fail_closed=True))],
 )
 ```
 

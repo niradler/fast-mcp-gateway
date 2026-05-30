@@ -1,11 +1,11 @@
-"""AgtPolicyPlugin: enforce agent-os policy on tool calls, scoped to the selected group.
+"""AgtAgentOsPlugin: the gateway's Microsoft agent-governance-toolkit (agent-os) plugin.
 
-This is the gateway's first integration plugin. It contributes a single
-``pre_tool_call`` hook that evaluates Microsoft agent-governance-toolkit (agent-os)
-policy for every tool call and denies the call when the policy rejects it. The active
-group (``mcp_gateway.access.current_group``, set per request by the group-scoped MCP
-mount) is passed to the engine as ``principal`` and ``group`` so policies enforce per
-group — no registry lookups are needed.
+This is the gateway's first integration plugin and the home for agent-os capabilities.
+Today it contributes a single ``pre_tool_call`` hook that evaluates agent-os policy for
+every tool call and denies the call when the policy rejects it. The active group
+(``mcp_gateway.access.current_group``, set per request by the group-scoped MCP mount) is
+passed to the engine as ``principal`` and ``group`` so policies enforce per group — no
+registry lookups are needed.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 _logger = logging.getLogger("mcp_gateway.integrations.agt")
 
 
-class AgtPolicyPlugin:
+class AgtAgentOsPlugin:
     """Evaluate agent-os policy on every tool call; deny calls the policy rejects."""
 
     name = "agt"

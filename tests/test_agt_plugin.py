@@ -100,10 +100,10 @@ async def test_build_evaluator_loads_and_validates_yaml_dir(tmp_path: Any) -> No
 
 async def test_enforce_hook_denies_disallowed_tool() -> None:
     from mcp_gateway.hooks import ToolDecision
-    from mcp_gateway.integrations.agt.plugin import AgtPolicyPlugin
+    from mcp_gateway.integrations.agt.plugin import AgtAgentOsPlugin
     from mcp_gateway.integrations.agt.settings import AgtSettings
 
-    plugin = AgtPolicyPlugin(AgtSettings(policies=[_deny_doc("resource", "delete_all")]))
+    plugin = AgtAgentOsPlugin(AgtSettings(policies=[_deny_doc("resource", "delete_all")]))
     await plugin.setup()
     hook = plugin.contributions(_gateway_context()).hooks.pre_tool_call[0]
 
@@ -117,10 +117,10 @@ async def test_enforce_hook_denies_disallowed_tool() -> None:
 
 async def test_enforce_hook_scopes_by_current_group() -> None:
     from mcp_gateway.hooks import ToolDecision
-    from mcp_gateway.integrations.agt.plugin import AgtPolicyPlugin
+    from mcp_gateway.integrations.agt.plugin import AgtAgentOsPlugin
     from mcp_gateway.integrations.agt.settings import AgtSettings
 
-    plugin = AgtPolicyPlugin(AgtSettings(policies=[_deny_doc("group", "restricted")]))
+    plugin = AgtAgentOsPlugin(AgtSettings(policies=[_deny_doc("group", "restricted")]))
     await plugin.setup()
     hook = plugin.contributions(_gateway_context()).hooks.pre_tool_call[0]
 
@@ -136,17 +136,54 @@ async def test_agt_plugin_satisfies_protocol_and_assembles() -> None:
     from fastapi.testclient import TestClient
 
     from mcp_gateway.app import create_gateway
-    from mcp_gateway.integrations.agt.plugin import AgtPolicyPlugin
+    from mcp_gateway.integrations.agt.plugin import AgtAgentOsPlugin
     from mcp_gateway.integrations.agt.settings import AgtSettings
     from mcp_gateway.plugins import Plugin
     from mcp_gateway.store.sqlite import SqliteStore
 
-    plugin: Plugin = AgtPolicyPlugin(AgtSettings(policies=[_deny_doc("resource", "delete_all")]))
+    store = SqliteStore(":memory:")
+    plugin: Plugin = AgtAgentOsPlugin(AgtSettings(policies=[_deny_doc("resource", "delete_all")]))
     assert isinstance(plugin, Plugin)
     assert plugin.name == "agt"
 
-    gateway = create_gateway(SqliteStore(":memory:"), plugins=[plugin])
+    gateway = create_gateway(store, plugins=[plugin])
     app = FastAPI(lifespan=gateway.lifespan)
     gateway.install(app)
-    with TestClient(app):
-        pass
+    try:
+        with TestClient(app):
+            pass
+    finally:
+        await store.close()
+
+
+async def test_policy_blocks_tool_call_end_to_end() -> None:
+    """End-to-end: a denied tool call is blocked through the real MCP middleware stack."""
+    from fastmcp import Client
+    from fastmcp.exceptions import ToolError
+
+    from mcp_gateway.app import create_gateway
+    from mcp_gateway.integrations.agt.plugin import AgtAgentOsPlugin
+    from mcp_gateway.integrations.agt.settings import AgtSettings
+    from mcp_gateway.store.sqlite import SqliteStore
+
+    store = SqliteStore(":memory:")
+    await store.initialize()
+    plugin = AgtAgentOsPlugin(AgtSettings(policies=[_deny_doc("resource", "delete_all")]))
+    gateway = create_gateway(store, plugins=[plugin])
+
+    @gateway.mcp.tool
+    async def read_file() -> str:
+        return "contents"
+
+    @gateway.mcp.tool
+    async def delete_all() -> str:
+        return "boom"
+
+    try:
+        async with Client(gateway.mcp) as client:
+            allowed = await client.call_tool("read_file", {})
+            assert allowed.data == "contents"
+            with pytest.raises(ToolError):
+                await client.call_tool("delete_all", {})
+    finally:
+        await store.close()
