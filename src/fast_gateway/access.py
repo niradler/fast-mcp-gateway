@@ -2,7 +2,7 @@
 
 ``AccessPolicy`` compiles rules once per ``rebuild()`` so the per-request path
 is only dict lookups and ``fnmatch.fnmatchcase`` — no I/O, no recompilation.
-``current_group`` (set by :class:`fast_mcp_gateway.routing.GroupDispatch`) scopes
+``current_group`` (set by :class:`fast_gateway.routing.GroupDispatch`) scopes
 requests to a group; non-namespaced tools (gateway-local meta-tools) are always allowed.
 """
 
@@ -14,9 +14,9 @@ from dataclasses import dataclass
 from fnmatch import fnmatchcase
 from typing import Any
 
-from fast_mcp_gateway.models import GroupRecord, ServerRecord
+from fast_gateway.models import GroupRecord, ServerRecord
 
-current_group: ContextVar[str | None] = ContextVar("fast_mcp_gateway_current_group", default=None)
+current_group: ContextVar[str | None] = ContextVar("fast_gateway_current_group", default=None)
 
 
 @dataclass

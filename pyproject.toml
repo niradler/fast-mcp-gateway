@@ -1,6 +1,6 @@
 [project]
-name = "fast-mcp-gateway"
-version = "0.0.1"
+name = "fast-gateway"
+version = "0.0.2"
 description = "A lean, FastMCP-based gateway that turns a registry of upstream MCP servers into one governed, namespaced MCP endpoint mounted on FastAPI."
 readme = "README.md"
 license = "MIT"
@@ -31,7 +31,7 @@ dependencies = [
 # Optional, EXPERIMENTAL: Microsoft agent-governance-toolkit (agent-os) policy engine.
 # Only the AGT plugin needs it; the gateway and plugin system work fully without it.
 # Sourced from GitHub via [tool.uv.sources] below until agent-os-kernel 4.x is on PyPI,
-# so install from a uv project (`uv add "fast-mcp-gateway[agt]"`) — plain pip cannot
+# so install from a uv project (`uv add "fast-gateway[agt]"`) — plain pip cannot
 # resolve it yet. agent-os-kernel is being consolidated into agent-governance-toolkit-core.
 # `agent-governance-toolkit-core` is a transitive dep of agent-os-kernel; it is listed
 # explicitly only so its git source (below) applies (uv sources bind to direct deps).
@@ -48,10 +48,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/fast_mcp_gateway"]
+packages = ["src/fast_gateway"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/fast_mcp_gateway", "README.md", "LICENSE"]
+include = ["src/fast_gateway", "README.md", "LICENSE"]
 
 # TODO: agent-os 4.x lives only in the GitHub monorepo for now (PyPI `agent-os-kernel`
 # lags at 3.7.0). Pull the kernel and its in-repo `core` dependency from git. Remove both
@@ -116,7 +116,7 @@ ignore = []
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["fast_mcp_gateway"]
+known-first-party = ["fast_gateway"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -147,7 +147,7 @@ testpaths = ["tests"]
 addopts = "-ra -q"
 
 [tool.coverage.run]
-source = ["src/fast_mcp_gateway"]
+source = ["src/fast_gateway"]
 branch = true
 
 [tool.coverage.report]

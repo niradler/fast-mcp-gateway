@@ -13,8 +13,8 @@ from fastmcp.client.transports.http import StreamableHttpTransport
 from fastmcp.client.transports.sse import SSETransport
 from fastmcp.server.providers.proxy import ProxyClient
 
-from fast_mcp_gateway.hooks import ConnectContext, Hooks
-from fast_mcp_gateway.models import ServerRecord, Transport
+from fast_gateway.hooks import ConnectContext, Hooks
+from fast_gateway.models import ServerRecord, Transport
 
 ClientFactory = Callable[[], Awaitable[ProxyClient[Any]]]
 

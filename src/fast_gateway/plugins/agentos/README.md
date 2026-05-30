@@ -43,21 +43,21 @@ default for a governance component.
 ## Install
 
 ```bash
-uv add "fast-mcp-gateway[agt]"   # from within a uv project — honors the git source
+uv add "fast-gateway[agt]"   # from within a uv project — honors the git source
 ```
 
 The `agt` extra is sourced from the agent-governance-toolkit GitHub monorepo (via uv
 `[tool.uv.sources]`) until `agent-os-kernel` 4.x is published to PyPI. Because of that
 git source, install it from within a uv project; a plain `pip install
-"fast-mcp-gateway[agt]"` cannot resolve the dependency and will fail until it lands on
+"fast-gateway[agt]"` cannot resolve the dependency and will fail until it lands on
 PyPI. Upstream, `agent-os-kernel` is being consolidated into
 `agent-governance-toolkit-core`.
 
 ## Usage
 
 ```python
-from fast_mcp_gateway import SqliteStore, create_gateway
-from fast_mcp_gateway.plugins.agentos import AgtAgentOsPlugin, AgtAgentOsSettings
+from fast_gateway import SqliteStore, create_gateway
+from fast_gateway.plugins.agentos import AgtAgentOsPlugin, AgtAgentOsSettings
 
 gateway = create_gateway(
     store=SqliteStore("gateway.db"),

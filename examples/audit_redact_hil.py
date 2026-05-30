@@ -30,7 +30,7 @@ import mcp.types as mt
 from fastapi import FastAPI
 from fastmcp.server.middleware import MiddlewareContext
 
-from fast_mcp_gateway import (
+from fast_gateway import (
     ConfirmationContext,
     Hooks,
     SqliteStore,

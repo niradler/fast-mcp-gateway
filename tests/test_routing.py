@@ -11,8 +11,8 @@ from __future__ import annotations
 from collections.abc import MutableMapping
 from typing import Any
 
-from fast_mcp_gateway.access import current_group
-from fast_mcp_gateway.routing import GroupDispatch, split_group_path
+from fast_gateway.access import current_group
+from fast_gateway.routing import GroupDispatch, split_group_path
 
 
 def test_split_group_path_trailing_slash() -> None:

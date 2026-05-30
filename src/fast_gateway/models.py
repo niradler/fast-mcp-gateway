@@ -1,7 +1,7 @@
 """Pydantic schemas shared across the gateway.
 
 These describe the persisted registry (servers, groups) and the request/response
-shapes used by the admin API. Storage backends in ``fast_mcp_gateway.store`` translate
+shapes used by the admin API. Storage backends in ``fast_gateway.store`` translate
 between these models and their own representation.
 """
 

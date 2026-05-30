@@ -14,13 +14,13 @@ from fastmcp import FastMCP
 from fastmcp.server.providers.base import Provider
 from fastmcp.server.providers.proxy import FastMCPProxy
 
-from fast_mcp_gateway.access import AccessPolicy
-from fast_mcp_gateway.catalog import collect_catalog
-from fast_mcp_gateway.connect import build_client_factory
-from fast_mcp_gateway.hooks import Hooks
-from fast_mcp_gateway.store.base import Store
+from fast_gateway.access import AccessPolicy
+from fast_gateway.catalog import collect_catalog
+from fast_gateway.connect import build_client_factory
+from fast_gateway.hooks import Hooks
+from fast_gateway.store.base import Store
 
-logger = logging.getLogger("fast_mcp_gateway.builder")
+logger = logging.getLogger("fast_gateway.builder")
 
 
 class GatewayBuilder:

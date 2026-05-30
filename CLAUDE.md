@@ -1,4 +1,4 @@
-# CLAUDE.md — fast-mcp-gateway
+# CLAUDE.md — fast-gateway
 
 Project-level guidance for working in this repo. Read alongside the global instructions.
 
@@ -21,8 +21,8 @@ audit, and cost limits are all plain async functions passed to `create_gateway` 
 ## Stack & tooling
 
 - **uv** — environment + packaging (`uv sync`, `uv run`, `uv build`, `uv publish`).
-- **src layout** — code in `src/fast_mcp_gateway/`; import name `fast_mcp_gateway`, dist name
-  `fast-mcp-gateway`. Chosen for clean PyPI publishing.
+- **src layout** — code in `src/fast_gateway/`; import name `fast_gateway`, dist name
+  `fast-gateway`. Chosen for clean PyPI publishing.
 - **ruff** — lint + format. **mypy --strict** — types (gate). **pytest** + pytest-asyncio.
 - Target floor: **Python 3.11+** (`requires-python`); dev interpreter pinned via
   `.python-version` (3.13).
@@ -56,7 +56,7 @@ make build       # sdist + wheel
 ## Layout
 
 ```
-src/fast_mcp_gateway/
+src/fast_gateway/
   app.py            # create_gateway() -> Gateway(mcp, mcp_app, admin_router, builder)
   hooks.py          # Hooks container + HookMiddleware (on_call_tool / on_list_tools)
   connect.py        # build_client_factory() — runs pre_mcp_connect, builds ProxyClient
@@ -81,7 +81,7 @@ tests/
 - Async-first: all I/O is `async`. Constructor-injected deps (e.g. routers are built by
   `build_*_router(store)` factories) — no global state, no DI framework.
 - Central config / structured logging when added: one config module, one logger
-  (`logging.getLogger("fast_mcp_gateway.*")`), never `print`.
+  (`logging.getLogger("fast_gateway.*")`), never `print`.
 - Add a dep with `uv add` (latest stable); dev deps with `uv add --dev`.
 
 ## Current state

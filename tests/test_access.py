@@ -9,8 +9,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
-from fast_mcp_gateway.access import AccessPolicy
-from fast_mcp_gateway.models import GroupRecord, ServerRecord
+from fast_gateway.access import AccessPolicy
+from fast_gateway.models import GroupRecord, ServerRecord
 
 
 def make_server(

@@ -13,8 +13,8 @@ import mcp.types as mt
 from agent_os.policies import AsyncPolicyEvaluator
 from fastmcp.server.middleware import MiddlewareContext
 
-from fast_mcp_gateway.access import current_group
-from fast_mcp_gateway.hooks import (
+from fast_gateway.access import current_group
+from fast_gateway.hooks import (
     ConnectHook,
     Hooks,
     PostToolCallHook,
@@ -22,18 +22,18 @@ from fast_mcp_gateway.hooks import (
     ToolCallResult,
     ToolDecision,
 )
-from fast_mcp_gateway.plugins import GatewayContext, PluginContributions
-from fast_mcp_gateway.plugins.agentos.detectors import (
+from fast_gateway.plugins import GatewayContext, PluginContributions
+from fast_gateway.plugins.agentos.detectors import (
     make_credential_redaction_hook,
     make_egress_hook,
     make_prompt_injection_hook,
     make_response_scan_hook,
     make_semantic_policy_hook,
 )
-from fast_mcp_gateway.plugins.agentos.policy import build_evaluator
-from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+from fast_gateway.plugins.agentos.policy import build_evaluator
+from fast_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
-_logger = logging.getLogger("fast_mcp_gateway.plugins.agentos")
+_logger = logging.getLogger("fast_gateway.plugins.agentos")
 
 
 class AgtAgentOsPlugin:

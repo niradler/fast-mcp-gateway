@@ -16,7 +16,7 @@ from agent_os.semantic_policy import IntentCategory, SemanticPolicyConfig
 
 @dataclass
 class AgtAgentOsSettings:
-    """Tunables for :class:`~fast_mcp_gateway.plugins.agentos.plugin.AgtAgentOsPlugin`.
+    """Tunables for :class:`~fast_gateway.plugins.agentos.plugin.AgtAgentOsPlugin`.
 
     Policy engine (always on) reads ``policy_dir`` or in-memory ``policies``
     (``policy_dir`` wins); ``allow_no_policies`` opts in to allow-all mode.

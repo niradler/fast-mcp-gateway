@@ -16,7 +16,7 @@ from collections.abc import Sequence
 
 import aiosqlite
 
-from fast_mcp_gateway.models import (
+from fast_gateway.models import (
     CatalogTool,
     GroupCreate,
     GroupPatch,
@@ -27,7 +27,7 @@ from fast_mcp_gateway.models import (
     Transport,
 )
 
-logger = logging.getLogger("fast_mcp_gateway.store.sqlite")
+logger = logging.getLogger("fast_gateway.store.sqlite")
 
 _CREATE_SERVERS = """
 CREATE TABLE IF NOT EXISTS servers (

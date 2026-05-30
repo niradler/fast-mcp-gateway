@@ -17,7 +17,7 @@ from agent_os.prompt_injection import DetectionConfig, PromptInjectionDetector
 from agent_os.semantic_policy import PolicyDenied, SemanticPolicyEngine
 from fastmcp.exceptions import ToolError
 
-from fast_mcp_gateway.hooks import (
+from fast_gateway.hooks import (
     ConnectContext,
     ConnectHook,
     PostToolCallHook,
@@ -25,7 +25,7 @@ from fast_mcp_gateway.hooks import (
     ToolCallResult,
     ToolDecision,
 )
-from fast_mcp_gateway.plugins.agentos.settings import AgtAgentOsSettings
+from fast_gateway.plugins.agentos.settings import AgtAgentOsSettings
 
 
 def _args_text(arguments: dict[str, Any] | None) -> str:

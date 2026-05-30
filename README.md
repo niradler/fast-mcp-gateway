@@ -1,4 +1,4 @@
-# fast-mcp-gateway
+# fast-gateway
 
 [![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org)
 [![Built on FastMCP](https://img.shields.io/badge/built%20on-FastMCP%20v3-orange.svg)](https://gofastmcp.com)
@@ -14,7 +14,7 @@ limits — is a **hook function** you pass at mount time, or a **plugin** that b
 several together.
 
 ```text
-many upstream MCP servers  ──►  fast-mcp-gateway  ──►  one governed /mcp endpoint
+many upstream MCP servers  ──►  fast-gateway  ──►  one governed /mcp endpoint
    github, slack, jira…          (namespaced + filtered + policy-checked)
 ```
 
@@ -29,7 +29,7 @@ many upstream MCP servers  ──►  fast-mcp-gateway  ──►  one governed 
 
 Point an LLM at a dozen MCP servers directly and you get a dozen connections, a dozen
 auth schemes, no namespacing, no central policy, and no way to hide a dangerous tool.
-`fast-mcp-gateway` puts one endpoint in front of them all:
+`fast-gateway` puts one endpoint in front of them all:
 
 - **One connection, many servers** — register upstreams in a store; the gateway
   proxies each under its own namespace (`github_*`, `slack_*`, …).
@@ -88,7 +88,7 @@ alongside an admin router for CRUD. A `HookMiddleware` and an `AccessPolicy` wra
 ### Install
 
 ```bash
-uv add fast-mcp-gateway        # or: pip install fast-mcp-gateway
+uv add fast-gateway        # or: pip install fast-gateway
 ```
 
 ### Quickstart
@@ -96,7 +96,7 @@ uv add fast-mcp-gateway        # or: pip install fast-mcp-gateway
 ```python
 import os
 from fastapi import FastAPI
-from fast_mcp_gateway import ConnectContext, ConnectSettings, Hooks, SqliteStore, create_gateway
+from fast_gateway import ConnectContext, ConnectSettings, Hooks, SqliteStore, create_gateway
 
 
 async def inject_auth(ctx: ConnectContext) -> ConnectSettings | None:
@@ -159,7 +159,7 @@ args**, **deny**, or return **`REQUIRE_CONFIRMATION`** — which triggers the
 > just hooks — nothing special in the core.
 
 ```python
-from fast_mcp_gateway import Hooks, ToolCallResult, ToolDecision
+from fast_gateway import Hooks, ToolCallResult, ToolDecision
 
 
 async def block_deletes(ctx) -> ToolCallResult | None:
@@ -207,7 +207,7 @@ ASGI sub-app mounts, meta-tool registration, and async `setup` / `teardown` boun
 the gateway lifespan.
 
 ```python
-from fast_mcp_gateway import create_gateway, SqliteStore
+from fast_gateway import create_gateway, SqliteStore
 
 gateway = create_gateway(
     store=SqliteStore("gateway.db"),
@@ -221,7 +221,7 @@ returning `PluginContributions`, and `setup` / `teardown` coroutines. The
 callable. These authoring types are top-level exports:
 
 ```python
-from fast_mcp_gateway import Plugin, PluginContributions, GatewayContext
+from fast_gateway import Plugin, PluginContributions, GatewayContext
 ```
 
 ### Optional: agent-os plugin (experimental)
@@ -246,12 +246,12 @@ policy rejects. Additional agent-os capabilities are opt-in toggles on `AgtAgent
 | `enable_egress_policy` (+ `egress_rules`) | `pre_mcp_connect` | refuse upstreams whose URL is outside the allowlist |
 
 ```bash
-uv add "fast-mcp-gateway[agt]"   # from within a uv project — honors the git source
+uv add "fast-gateway[agt]"   # from within a uv project — honors the git source
 ```
 
 ```python
-from fast_mcp_gateway import create_gateway, SqliteStore
-from fast_mcp_gateway.plugins.agentos import AgtAgentOsPlugin, AgtAgentOsSettings
+from fast_gateway import create_gateway, SqliteStore
+from fast_gateway.plugins.agentos import AgtAgentOsPlugin, AgtAgentOsSettings
 
 gateway = create_gateway(
     store=SqliteStore("gateway.db"),
@@ -272,8 +272,8 @@ gateway = create_gateway(
 > [!NOTE]
 > The `agt` extra is sourced from the agent-governance-toolkit GitHub monorepo (via uv
 > `[tool.uv.sources]`) until `agent-os-kernel` 4.x is published to PyPI. Because of that
-> git source, install it from within a uv project (`uv add "fast-mcp-gateway[agt]"`),
-> which honors the source; a plain `pip install "fast-mcp-gateway[agt]"` cannot resolve
+> git source, install it from within a uv project (`uv add "fast-gateway[agt]"`),
+> which honors the source; a plain `pip install "fast-gateway[agt]"` cannot resolve
 > the dependency and will fail until it lands on PyPI. Upstream, `agent-os-kernel` is
 > being renamed/consolidated to `agent-governance-toolkit-core`. The gateway and the
 > plugin system work fully **without** the extra — only this one integration needs it.

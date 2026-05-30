@@ -10,10 +10,10 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, status
 
-from fast_mcp_gateway.connect import build_client_factory
-from fast_mcp_gateway.hooks import Hooks
-from fast_mcp_gateway.models import ServerCreate, ServerPatch, ServerRecord
-from fast_mcp_gateway.store.base import Store
+from fast_gateway.connect import build_client_factory
+from fast_gateway.hooks import Hooks
+from fast_gateway.models import ServerCreate, ServerPatch, ServerRecord
+from fast_gateway.store.base import Store
 
 
 def build_servers_router(store: Store, hooks: Hooks) -> APIRouter:

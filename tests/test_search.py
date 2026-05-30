@@ -15,11 +15,11 @@ import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
 
-from fast_mcp_gateway.access import AccessPolicy
-from fast_mcp_gateway.app import create_gateway
-from fast_mcp_gateway.models import CatalogTool, ServerRecord
-from fast_mcp_gateway.search import register_search_tools
-from fast_mcp_gateway.store.sqlite import SqliteStore
+from fast_gateway.access import AccessPolicy
+from fast_gateway.app import create_gateway
+from fast_gateway.models import CatalogTool, ServerRecord
+from fast_gateway.search import register_search_tools
+from fast_gateway.store.sqlite import SqliteStore
 
 # Stores opened by ``_gateway`` are held alive by the FastMCP server/Client, so they are
 # not garbage-collected between tests; their aiosqlite worker threads are non-daemon and

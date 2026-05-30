@@ -1,7 +1,7 @@
 """Builds the persisted tool catalog by introspecting the upstreams.
 
 Catalog rows are namespaced as ``"<server.name>_<bare>"`` — the join FastMCP uses for
-``mount(namespace=...)`` and that :mod:`fast_mcp_gateway.access` relies on. The catalog
+``mount(namespace=...)`` and that :mod:`fast_gateway.access` relies on. The catalog
 is the gateway's only source for ``tools/list`` and search meta-tools on the request path;
 fan-out to upstreams happens only on reload.
 """
@@ -17,11 +17,11 @@ from fastmcp.tools.base import Tool
 from fastmcp.utilities.components import get_fastmcp_metadata
 from mcp.types import ToolAnnotations
 
-from fast_mcp_gateway.connect import build_client_factory
-from fast_mcp_gateway.hooks import Hooks
-from fast_mcp_gateway.models import CatalogTool, ServerRecord
+from fast_gateway.connect import build_client_factory
+from fast_gateway.hooks import Hooks
+from fast_gateway.models import CatalogTool, ServerRecord
 
-logger = logging.getLogger("fast_mcp_gateway.catalog")
+logger = logging.getLogger("fast_gateway.catalog")
 
 
 def catalog_tool_from_mcp(server: ServerRecord, tool: mcp.types.Tool) -> CatalogTool:

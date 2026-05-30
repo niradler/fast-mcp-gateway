@@ -13,9 +13,9 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
-from fast_mcp_gateway.access import AccessPolicy, current_group
-from fast_mcp_gateway.models import CatalogTool
-from fast_mcp_gateway.store.base import Store
+from fast_gateway.access import AccessPolicy, current_group
+from fast_gateway.models import CatalogTool
+from fast_gateway.store.base import Store
 
 _MAX_LIMIT = 50
 _CANDIDATE_CAP = 200

@@ -6,7 +6,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 
-from fast_mcp_gateway.models import (
+from fast_gateway.models import (
     CatalogTool,
     GroupCreate,
     GroupPatch,
@@ -14,7 +14,7 @@ from fast_mcp_gateway.models import (
     ServerPatch,
     Transport,
 )
-from fast_mcp_gateway.store.sqlite import SqliteStore
+from fast_gateway.store.sqlite import SqliteStore
 
 
 @pytest.fixture

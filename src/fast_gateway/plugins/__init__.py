@@ -17,8 +17,8 @@ from fastmcp import FastMCP
 from fastmcp.server.middleware import Middleware
 from starlette.types import ASGIApp
 
-from fast_mcp_gateway.hooks import Hooks
-from fast_mcp_gateway.store.base import Store
+from fast_gateway.hooks import Hooks
+from fast_gateway.store.base import Store
 
 
 @dataclass

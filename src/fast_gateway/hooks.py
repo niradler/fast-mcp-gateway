@@ -19,8 +19,8 @@ from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.tools.base import Tool
 from pydantic import BaseModel
 
-from fast_mcp_gateway.access import AccessPolicy, current_group
-from fast_mcp_gateway.models import ServerRecord
+from fast_gateway.access import AccessPolicy, current_group
+from fast_gateway.models import ServerRecord
 
 
 class ConnectContext(BaseModel):

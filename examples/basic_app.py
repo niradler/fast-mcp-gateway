@@ -17,7 +17,7 @@ import os
 
 from fastapi import FastAPI
 
-from fast_mcp_gateway import ConnectContext, ConnectSettings, Hooks, SqliteStore, create_gateway
+from fast_gateway import ConnectContext, ConnectSettings, Hooks, SqliteStore, create_gateway
 
 
 async def inject_auth(context: ConnectContext) -> ConnectSettings | None:

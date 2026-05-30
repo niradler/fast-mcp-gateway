@@ -7,8 +7,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import fast_mcp_gateway
-from fast_mcp_gateway import Gateway, Hooks, SqliteStore, create_gateway
+import fast_gateway
+from fast_gateway import Gateway, Hooks, SqliteStore, create_gateway
 
 
 def make_app() -> tuple[FastAPI, Gateway]:
@@ -19,8 +19,8 @@ def make_app() -> tuple[FastAPI, Gateway]:
 
 
 def test_version_is_exposed() -> None:
-    assert isinstance(fast_mcp_gateway.__version__, str)
-    assert fast_mcp_gateway.__version__
+    assert isinstance(fast_gateway.__version__, str)
+    assert fast_gateway.__version__
 
 
 def test_create_gateway_returns_gateway() -> None:

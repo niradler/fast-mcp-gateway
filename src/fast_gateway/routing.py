@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from fast_mcp_gateway.access import current_group
+from fast_gateway.access import current_group
 
 
 def split_group_path(remainder: str, transport_path: str) -> tuple[str, str]:

@@ -19,16 +19,16 @@ from fastmcp.tools.base import Tool
 from starlette.applications import Starlette
 from starlette.types import Lifespan
 
-from fast_mcp_gateway.access import AccessPolicy
-from fast_mcp_gateway.api.groups import build_groups_router
-from fast_mcp_gateway.api.servers import build_servers_router
-from fast_mcp_gateway.builder import GatewayBuilder
-from fast_mcp_gateway.catalog import catalog_tool_to_fastmcp
-from fast_mcp_gateway.hooks import HookMiddleware, Hooks, merge_hooks
-from fast_mcp_gateway.plugins import GatewayContext, Plugin
-from fast_mcp_gateway.routing import GroupDispatch
-from fast_mcp_gateway.search import register_search_tools
-from fast_mcp_gateway.store.base import Store
+from fast_gateway.access import AccessPolicy
+from fast_gateway.api.groups import build_groups_router
+from fast_gateway.api.servers import build_servers_router
+from fast_gateway.builder import GatewayBuilder
+from fast_gateway.catalog import catalog_tool_to_fastmcp
+from fast_gateway.hooks import HookMiddleware, Hooks, merge_hooks
+from fast_gateway.plugins import GatewayContext, Plugin
+from fast_gateway.routing import GroupDispatch
+from fast_gateway.search import register_search_tools
+from fast_gateway.store.base import Store
 
 
 @dataclass
