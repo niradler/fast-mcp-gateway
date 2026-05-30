@@ -29,3 +29,12 @@ class AgtSettings:
     policies: list[PolicyDocument] = field(default_factory=list)
     default_principal: str = "*"
     fail_closed: bool = False
+
+    # Quick-win agent-os capabilities, each off by default.
+    enable_prompt_injection: bool = False  # pre: deny calls whose args look like injection
+    injection_sensitivity: str = "balanced"  # strict | balanced | permissive
+    enable_semantic_policy: bool = False  # pre: deny calls with dangerous classified intent
+    semantic_deny: list[str] = field(default_factory=list)  # IntentCategory names to deny
+    semantic_confidence_threshold: float = 0.5
+    enable_response_scan: bool = False  # post: block responses flagged unsafe
+    enable_credential_redaction: bool = False  # post: redact secrets/PII from responses

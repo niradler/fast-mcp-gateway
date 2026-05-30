@@ -14,7 +14,19 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from mcp_gateway.access import current_group
-from mcp_gateway.hooks import Hooks, PreToolCallHook, ToolCallResult, ToolDecision
+from mcp_gateway.hooks import (
+    Hooks,
+    PostToolCallHook,
+    PreToolCallHook,
+    ToolCallResult,
+    ToolDecision,
+)
+from mcp_gateway.integrations.agt.detectors import (
+    make_credential_redaction_hook,
+    make_prompt_injection_hook,
+    make_response_scan_hook,
+    make_semantic_policy_hook,
+)
 from mcp_gateway.integrations.agt.policy import build_evaluator
 from mcp_gateway.integrations.agt.settings import AgtSettings
 from mcp_gateway.plugins import PluginContributions
@@ -47,7 +59,22 @@ class AgtAgentOsPlugin:
     def contributions(self, context: GatewayContext) -> PluginContributions:
         if self._evaluator is None:
             self._evaluator = build_evaluator(self._settings)
-        return PluginContributions(hooks=Hooks(pre_tool_call=[self._make_enforce_hook()]))
+        settings = self._settings
+
+        pre: list[PreToolCallHook] = []
+        if settings.enable_prompt_injection:
+            pre.append(make_prompt_injection_hook(settings))
+        pre.append(self._make_enforce_hook())
+        if settings.enable_semantic_policy:
+            pre.append(make_semantic_policy_hook(settings))
+
+        post: list[PostToolCallHook] = []
+        if settings.enable_response_scan:
+            post.append(make_response_scan_hook(settings))
+        if settings.enable_credential_redaction:
+            post.append(make_credential_redaction_hook(settings))
+
+        return PluginContributions(hooks=Hooks(pre_tool_call=pre, post_tool_call=post))
 
     def _make_enforce_hook(self) -> PreToolCallHook:
         settings = self._settings

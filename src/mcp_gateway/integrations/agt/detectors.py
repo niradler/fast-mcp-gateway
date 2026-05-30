@@ -1,0 +1,114 @@
+"""agent-os detector/scanner hooks contributed by :class:`AgtAgentOsPlugin`.
+
+Quick-win agent-os capabilities mapped onto the gateway's seams:
+
+- ``pre_tool_call``: prompt-injection detection on arguments, semantic-policy intent
+  classification — each denies the call when it fires.
+- ``post_tool_call``: response threat scanning (blocks unsafe responses) and credential
+  redaction (rewrites secrets out of the response).
+
+Each detector is built once and reused across calls. They are synchronous and cheap
+(regex / classifier), so they run inline in the async hooks.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from agent_os.credential_redactor import CredentialRedactor
+from agent_os.mcp_response_scanner import MCPResponseScanner
+from agent_os.prompt_injection import DetectionConfig, PromptInjectionDetector
+from agent_os.semantic_policy import IntentCategory, SemanticPolicyEngine
+from fastmcp.exceptions import ToolError
+
+from mcp_gateway.hooks import PostToolCallHook, PreToolCallHook, ToolCallResult, ToolDecision
+from mcp_gateway.integrations.agt.settings import AgtSettings
+
+
+def _args_text(arguments: dict[str, Any] | None) -> str:
+    return " ".join(str(v) for v in (arguments or {}).values())
+
+
+def _response_text(response: Any) -> str:
+    content = getattr(response, "content", None)
+    if content:
+        joined = "".join(getattr(block, "text", "") or "" for block in content)
+        if joined:
+            return joined
+    return response if isinstance(response, str) else str(response)
+
+
+def make_prompt_injection_hook(settings: AgtSettings) -> PreToolCallHook:
+    """Deny a tool call when agent-os flags prompt injection in its arguments."""
+    detector = PromptInjectionDetector(DetectionConfig(sensitivity=settings.injection_sensitivity))
+
+    async def prompt_injection(ctx: Any) -> ToolCallResult | None:
+        text = _args_text(getattr(ctx.message, "arguments", None))
+        if not text:
+            return None
+        result = detector.detect(text, source=ctx.message.name)
+        if result.is_injection:
+            return ToolCallResult(
+                decision=ToolDecision.DENY,
+                reason=result.explanation or "Prompt injection detected in tool arguments.",
+            )
+        return None
+
+    return prompt_injection
+
+
+def make_semantic_policy_hook(settings: AgtSettings) -> PreToolCallHook:
+    """Deny a tool call whose classified intent is dangerous / in the deny list."""
+    deny = [IntentCategory[name] for name in settings.semantic_deny]
+    engine = SemanticPolicyEngine(
+        deny=deny or None, confidence_threshold=settings.semantic_confidence_threshold
+    )
+
+    async def semantic_policy(ctx: Any) -> ToolCallResult | None:
+        classification = engine.check(
+            ctx.message.name, getattr(ctx.message, "arguments", None) or {}
+        )
+        if classification.is_dangerous:
+            return ToolCallResult(
+                decision=ToolDecision.DENY,
+                reason=classification.explanation
+                or f"Denied by semantic policy (intent: {classification.category}).",
+            )
+        return None
+
+    return semantic_policy
+
+
+def make_response_scan_hook(settings: AgtSettings) -> PostToolCallHook:
+    """Block a tool response that agent-os flags as unsafe (credential/PII/threat)."""
+    scanner = MCPResponseScanner()
+
+    async def response_scan(ctx: Any, response: Any) -> Any:
+        result = scanner.scan_response(_response_text(response), ctx.message.name)
+        if not result.is_safe:
+            reasons = "; ".join(threat.description for threat in result.threats) or "unsafe content"
+            raise ToolError(f"Tool '{ctx.message.name}' response blocked: {reasons}")
+        return response
+
+    return response_scan
+
+
+def make_credential_redaction_hook(settings: AgtSettings) -> PostToolCallHook:
+    """Redact credentials/PII out of a tool response (text blocks + structured content)."""
+
+    async def credential_redaction(ctx: Any, response: Any) -> Any:
+        if isinstance(response, str):
+            return CredentialRedactor.redact(response)
+        content = getattr(response, "content", None)
+        if content:
+            for block in content:
+                text = getattr(block, "text", None)
+                if isinstance(text, str):
+                    block.text = CredentialRedactor.redact(text)
+        if getattr(response, "structured_content", None) is not None:
+            response.structured_content = CredentialRedactor.redact_data_structure(
+                response.structured_content
+            )
+        return response
+
+    return credential_redaction

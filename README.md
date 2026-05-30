@@ -220,12 +220,20 @@ returning `PluginContributions`, and `setup` / `teardown` coroutines. The
 `GatewayContext` it receives exposes the `store`, the parent `mcp`, and a `reload`
 callable.
 
-### Optional: agent-os policy plugin
+### Optional: agent-os plugin
 
 The `agt` extra wires Microsoft's
 [agent-governance-toolkit](https://github.com/microsoft/agent-governance-toolkit)
-(agent-os) policy engine in as a `pre_tool_call` plugin. It evaluates policy for every
-tool call — scoped to the active group — and denies calls the policy rejects.
+(agent-os) in as `AgtAgentOsPlugin`. Its core capability is the **policy engine**: it
+evaluates policy for every tool call — scoped to the active group — and denies calls the
+policy rejects. Additional agent-os capabilities are opt-in toggles on `AgtSettings`:
+
+| Toggle | Seam | Effect |
+| --- | --- | --- |
+| `enable_prompt_injection` | `pre_tool_call` | deny calls whose arguments look like prompt injection |
+| `enable_semantic_policy` (+ `semantic_deny`) | `pre_tool_call` | deny calls whose classified intent is dangerous |
+| `enable_response_scan` | `post_tool_call` | block responses flagged unsafe (credential/PII/threat) |
+| `enable_credential_redaction` | `post_tool_call` | redact secrets/PII out of responses |
 
 ```bash
 pip install "fast-mcp-gateway[agt]"
@@ -237,7 +245,17 @@ from mcp_gateway.integrations.agt import AgtAgentOsPlugin, AgtSettings
 
 gateway = create_gateway(
     store=SqliteStore("gateway.db"),
-    plugins=[AgtAgentOsPlugin(AgtSettings(policy_dir="./policies", fail_closed=True))],
+    plugins=[
+        AgtAgentOsPlugin(
+            AgtSettings(
+                policy_dir="./policies",
+                fail_closed=True,
+                enable_prompt_injection=True,
+                enable_response_scan=True,
+                enable_credential_redaction=True,
+            )
+        )
+    ],
 )
 ```
 
