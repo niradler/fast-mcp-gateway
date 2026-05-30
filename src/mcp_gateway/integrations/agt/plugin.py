@@ -13,6 +13,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+import mcp.types as mt
+from fastmcp.server.middleware import MiddlewareContext
+
 from mcp_gateway.access import current_group
 from mcp_gateway.hooks import (
     ConnectHook,
@@ -34,9 +37,7 @@ from mcp_gateway.integrations.agt.settings import AgtAgentOsSettings
 from mcp_gateway.plugins import PluginContributions
 
 if TYPE_CHECKING:
-    import mcp.types as mt
     from agent_os.policies import AsyncPolicyEvaluator
-    from fastmcp.server.middleware import MiddlewareContext
 
     from mcp_gateway.plugins import GatewayContext
 
