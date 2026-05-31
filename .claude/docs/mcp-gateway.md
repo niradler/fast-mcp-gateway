@@ -194,7 +194,90 @@ profile is identical to a reload-invalidated in-memory cache, so it's a strict w
 Also fixed `tests/test_routing.py` ASGI `send` annotations (`dict` → `MutableMapping`) to
 satisfy the gate after a starlette type tightening.
 
-## Next (Milestone 5)
+## Milestone 6 — Local CLI + Docker + browser HIL (DONE)
+
+**Final state (verified):** full gate green — `ruff format`/`ruff check`/`check_slop`
+clean, `mypy --strict` clean (48 src files), **223 tests pass**. Live smoke of
+`fast-gateway serve` confirmed `/docs` 200, `/admin/servers` 200, `/admin/hil` 200 (HIL UI),
+`/mcp/` 406 (correct MCP response to a bare GET). CLI `add`→reload→`list` and `group
+create`/`list` exercised end-to-end against the running daemon. Fixed: subagent had used
+em-dashes in `typer.echo`/log strings — ASCII-ified to avoid Windows-console
+`UnicodeEncodeError` (docstring em-dashes left, matching repo style).
+
+New files: `config.py`, `reference.py`, `factory.py`, `cli.py`, `hil/{__init__,plugin,
+pending,views}.py`; tests `test_config/reference/hil/factory/cli.py`; `Dockerfile`,
+`docker-compose.yml`, `.dockerignore`, `examples/gateway.toml`. pyproject: `cli` extra
+(`typer`/`uvicorn`/`httpx`) + `[project.scripts] fast-gateway`. `__init__` exports the new
+public API. README: "Run it locally (CLI & Docker)" section + browser-HIL + roadmap/status.
+
+### Original plan (IN PROGRESS at the time)
+
+**Goal (Nir):** ship a CLI + Docker so a user runs the gateway locally, registers all
+their MCP servers once, and points Claude Code (and other coding agents) at the single
+gateway endpoint — catalog auto-updates as servers are added, plus policy enforcement
+and browser-based human-in-the-loop approvals.
+
+### Decisions (confirmed by Nir, this session)
+
+1. **Transport stays HTTP/SSE only.** No stdio/subprocess transport. Local stdio servers
+   must be bridged to HTTP (document `fastmcp run --transport http` / `mcp-proxy`).
+2. **Config model:** *policies live in a file*; a gateway config file (`gateway.toml`)
+   holds settings. **Server/group CRUD is imperative** (CLI command or admin API) →
+   persisted in the default SQLite. The config file does NOT declare servers/groups.
+3. **Agent wiring is manual.** The user adds the gateway's `/mcp` endpoint to Claude Code
+   the same way he adds any MCP server today. CLI `connect`/`info` just prints the exact
+   endpoint + a paste-ready snippet (no config rewriting, no import). Auto-update of the
+   agent's tool list comes free from one stable endpoint + `tools/list_changed` on reload.
+4. **Build style:** clean, simple, consistent. Implementation delegated to the python
+   agent. CLI uses a modern CLI lib — **Typer**.
+
+### Build plan (modules)
+
+- `config.py` — `tomllib` loaders → `GatewayConfig` (name, db, host, port, mcp_path,
+  admin_prefix, admin_token, policy_file, hil settings) + `LocalPolicy` (deny, confirm
+  globs, audit). Policy from its own file or inline `[policy]`.
+- `reference.py` — reference hook factories: `audit_hook()`, `deny_hook(patterns)`,
+  `confirm_hook(patterns)` (pre_tool_call → REQUIRE_CONFIRMATION). Pure, TDD.
+- `hil/` plugin — `HumanApprovalPlugin`: `confirmation` hook creates a pending approval
+  (uuid → `asyncio.Future[bool]`), opens the browser to an approval page showing the
+  tool + args + reason, blocks until Approve/Deny (timeout → deny, fail-safe). Mounts an
+  admin router (`/admin/hil`) serving the list + detail + decision routes. Fits the plugin
+  contract (admin_router + confirmation hook + setup/teardown).
+- `factory.py` — `build_gateway_from_config(config)` assembles store + reference hooks +
+  HIL plugin → `create_gateway` → FastAPI app. Used by `serve`.
+- `cli.py` — Typer app talking to the admin API via httpx: `serve` (boots uvicorn from
+  config), `add`/`list`/`remove`/`enable`/`disable` (servers), `group …`, `reload`,
+  `connect`/`info` (print endpoint + Claude Code snippet).
+- ~~`builder.reload()` — emit `tools/list_changed`~~ **DEFERRED (RCA below).**
+
+### Decision: tools/list_changed push deferred (not a fragile internals hack)
+
+FastMCP v3.3.1 exposes **no** supported API to broadcast `notifications/tools/list_changed`
+to active sessions from an off-session reload (the admin `/reload` runs on a different
+connection than the MCP client sessions). `ServerSession.send_tool_list_changed()` exists
+in low-level `mcp`, but reaching the live sessions means digging into the private
+`StreamableHTTPSessionManager` internals — version-coupled and brittle. **Verdict: don't
+build it.** The goal ("agent updated when a server is added") is met by the stable-endpoint
+property: the gateway is ONE endpoint, so adding an upstream needs **zero agent
+reconfiguration**; the agent picks up new tools on its next `tools/list`/reconnect (how MCP
+clients refresh on session init). Real-time push is a clean enhancement to revisit if/when
+FastMCP exposes a supported broadcast. README + CLI `connect` framing reflects this honestly.
+
+### Packaging
+
+- pyproject: `[project.scripts] fast-gateway = "fast_gateway.cli:app"`; `cli` extra
+  (`typer`, `uvicorn[standard]`, `httpx`). Core stays lean.
+- `Dockerfile` + `docker-compose.yml` + `.dockerignore` (gateway + CLI; HIL
+  auto-open off in-container, approval_base_url set to the host-reachable URL).
+
+### Orchestration
+
+python-expert subagents build modules + tests sequentially (shared `.venv`/caches make
+parallel runs race). Subagents do NOT edit `__init__.py`/`pyproject.toml`/README — the
+main thread owns those central edits. Each subagent must pass the full gate
+(`ruff`, `mypy --strict`, `tools/check_slop.py`, `pytest`). No inline comments.
+
+## Earlier Next (Milestone 5)
 
 Reference hooks (audit, allow/deny, confirmation), docs, packaging dry-run — do NOT publish.
 

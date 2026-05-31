@@ -1,0 +1,22 @@
+{
+  "name": "MCP Gateway",
+  "db": "gateway.db",
+  "host": "127.0.0.1",
+  "port": 8000,
+  "mcp_path": "/mcp",
+  "admin_prefix": "/admin",
+  "admin_token": null,
+  "policy_file": null,
+  "oauth_token_dir": null,
+  "policy": {
+    "deny": [],
+    "confirm": ["*_delete_*", "*_write_*", "*_purge_*", "*_remove_*"],
+    "audit": true
+  },
+  "hil": {
+    "enabled": true,
+    "auto_open_browser": true,
+    "timeout_seconds": 300,
+    "approval_base_url": "http://127.0.0.1:8000/admin/hil"
+  }
+}

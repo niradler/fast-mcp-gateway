@@ -3,15 +3,21 @@ transport selection driven by ``pre_mcp_connect`` hooks."""
 
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+from fastmcp.client.auth import OAuth
 from fastmcp.client.transports.http import StreamableHttpTransport
 from fastmcp.client.transports.sse import SSETransport
 
-from fast_gateway.connect import build_client_factory, resolve_connect_settings
+from fast_gateway.connect import build_client_factory, build_oauth, resolve_connect_settings
 from fast_gateway.hooks import ConnectContext, ConnectSettings, Hooks
-from fast_gateway.models import ServerRecord, Transport
+from fast_gateway.models import ServerAuth, ServerRecord, Transport
 
 
-def record(transport: Transport = Transport.HTTP) -> ServerRecord:
+def record(
+    transport: Transport = Transport.HTTP, auth: ServerAuth = ServerAuth.NONE
+) -> ServerRecord:
     return ServerRecord(
         id="abc",
         name="weather",
@@ -19,6 +25,7 @@ def record(transport: Transport = Transport.HTTP) -> ServerRecord:
         url="https://example.com/mcp",
         static_headers={"x-static": "1", "x-shared": "static"},
         timeout_seconds=12.0,
+        auth=auth,
     )
 
 
@@ -68,3 +75,64 @@ async def test_factory_builds_sse_transport() -> None:
     factory = build_client_factory(record(Transport.SSE), Hooks())
     client = await factory()
     assert isinstance(client.transport, SSETransport)
+
+
+# ---------------------------------------------------------------------------
+# OAuth transport tests
+# ---------------------------------------------------------------------------
+
+
+async def test_oauth_transport_has_oauth_auth_instance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAST_GATEWAY_OAUTH_DIR", str(tmp_path / "tokens"))
+    srv = record(auth=ServerAuth.OAUTH)
+    factory = build_client_factory(srv, Hooks())
+    client = await factory()
+    assert isinstance(client.transport, StreamableHttpTransport)
+    assert isinstance(client.transport.auth, OAuth)
+
+
+async def test_none_auth_transport_has_no_auth(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAST_GATEWAY_OAUTH_DIR", str(tmp_path / "tokens"))
+    srv = record(auth=ServerAuth.NONE)
+    factory = build_client_factory(srv, Hooks())
+    client = await factory()
+    assert isinstance(client.transport, StreamableHttpTransport)
+    assert client.transport.auth is None
+
+
+async def test_oauth_sse_transport_has_oauth_auth_instance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAST_GATEWAY_OAUTH_DIR", str(tmp_path / "tokens"))
+    srv = record(transport=Transport.SSE, auth=ServerAuth.OAUTH)
+    factory = build_client_factory(srv, Hooks())
+    client = await factory()
+    assert isinstance(client.transport, SSETransport)
+    assert isinstance(client.transport.auth, OAuth)
+
+
+async def test_build_oauth_creates_persistent_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token_dir = tmp_path / "tokens"
+    monkeypatch.setenv("FAST_GATEWAY_OAUTH_DIR", str(token_dir))
+    srv = record(auth=ServerAuth.OAUTH, transport=Transport.HTTP)
+    srv = srv.model_copy(update={"oauth_scopes": ["user", "read:data"]})
+    oauth = build_oauth(srv)
+    assert isinstance(oauth, OAuth)
+    assert token_dir.exists()
+
+
+async def test_build_oauth_no_real_home_dir_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    token_dir = tmp_path / "my_tokens"
+    monkeypatch.setenv("FAST_GATEWAY_OAUTH_DIR", str(token_dir))
+    srv = record(auth=ServerAuth.OAUTH)
+    build_oauth(srv)
+    assert token_dir.exists()
+    assert token_dir.is_dir()

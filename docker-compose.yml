@@ -1,0 +1,22 @@
+# Local fast-gateway stack. Start with:  docker compose up --build
+# Then point your coding agent at  http://localhost:8000/mcp/  (see `fast-gateway connect`).
+# Add upstreams from the host with:  fast-gateway add <name> <url>
+#   (the CLI talks to the admin API on the mapped port).
+
+services:
+  gateway:
+    build: .
+    image: fast-gateway:local
+    ports:
+      - "8000:8000"
+    volumes:
+      # Edit ./gateway.json on the host (copy examples/gateway.json) to change settings.
+      - ./gateway.json:/config/gateway.json:ro
+      - gateway-data:/data
+    # environment:
+    #   # Require a bearer token on /admin (also send it from the CLI via --admin-token):
+    #   FAST_GATEWAY_ADMIN_TOKEN: change-me
+    restart: unless-stopped
+
+volumes:
+  gateway-data:

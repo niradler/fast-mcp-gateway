@@ -19,11 +19,12 @@ many upstream MCP servers  ──►  fast-gateway  ──►  one governed /mcp
 ```
 
 > [!NOTE]
-> **Status: 0.0.1, under active development.** This is the first public release and
-> APIs may change. Server registry, the proxy builder, the full hook pipeline, groups
-> with allow/deny, group-scoped endpoints, the plugin system, and the `search_tools` /
-> `describe_tool` meta-tools are implemented and tested. The bundled reference hooks are
-> still in progress — see the [roadmap](#roadmap).
+> **Status: 0.0.2, under active development.** APIs may change. Implemented and tested:
+> the server registry, proxy builder, full hook pipeline, groups with allow/deny,
+> group-scoped endpoints, the plugin system, the `search_tools` / `describe_tool`
+> meta-tools, the bundled reference hooks (audit / deny / confirm), the local
+> `fast-gateway` CLI + config/policy files, the browser human-in-the-loop plugin, and a
+> Docker image — see the [roadmap](#roadmap).
 
 ## Why
 
@@ -59,6 +60,9 @@ auth schemes, no namespacing, no central policy, and no way to hide a dangerous 
 - **Optional policy engine** — an `agt` extra wires Microsoft's
   [agent-governance-toolkit](https://github.com/microsoft/agent-governance-toolkit)
   (agent-os) in as a policy plugin.
+- **Local CLI & Docker** — `fast-gateway serve / add / list / group / connect`, a TOML
+  config + policy file, a **browser human-in-the-loop** approval page, and a Docker image
+  for self-hosting.
 - **Typed throughout** — `mypy --strict`, `py.typed`, full type hints.
 
 ## Architecture
@@ -78,6 +82,28 @@ mounts it under a namespace, exposed as an ASGI app you mount onto your own Fast
 alongside an admin router for CRUD. A `HookMiddleware` and an `AccessPolicy` wrap every
 `list_tools` / `call_tool` request.
 
+## Two ways to run it
+
+The same gateway runs in two distinct modes — pick the one that fits:
+
+| | **A. Embed (library)** | **B. Standalone (CLI/Docker)** |
+| --- | --- | --- |
+| Who | App developers | Anyone running it locally / self-hosted |
+| How | `create_gateway(...)` + `gateway.install(your_fastapi_app)` | `fast-gateway serve --config gateway.json` |
+| Governance | You write hooks / plugins in Python | JSON `policy` + bundled reference hooks |
+| Human-in-the-loop | Your own `confirmation` hook | Built-in **browser** approval plugin |
+| Where it lives | Inside your service, your routes, your auth | A daemon you point your agent at |
+| Start here | [Quickstart](#quickstart) | [Run it locally](#run-it-locally-cli--docker) |
+
+**Mode A** mounts the gateway *into your own API*, controlling every seam in Python — the path
+to production. **Mode B** is a complete, ready-to-use local daemon: no Python, config-driven,
+with the browser HIL and OAuth login already wired in — use it as-is to put your MCP servers
+behind one governed endpoint. It is also the most direct way to *learn* fast-gateway: its entire
+wiring is one small function, [`factory.build_app`](src/fast_gateway/factory.py), that composes
+`create_gateway` with the bundled reference hooks and the HIL plugin. Experiment locally with
+policy, groups, and approvals, then read `factory.build_app` to see exactly how to assemble your
+own gateway when you move to Mode A.
+
 ## Getting started
 
 ### Prerequisites
@@ -92,6 +118,10 @@ uv add fast-gateway        # or: pip install fast-gateway
 ```
 
 ### Quickstart
+
+> **Mode A — embed in your FastAPI app.** Mount the gateway into your own service and wire
+> governance in Python. For the no-code standalone daemon, see
+> [Run it locally](#run-it-locally-cli--docker) (Mode B).
 
 ```python
 import os
@@ -135,6 +165,101 @@ make run          # uv run uvicorn examples.basic_app:app --reload
 # Admin + OpenAPI docs: http://127.0.0.1:8000/docs
 # MCP endpoint:         http://127.0.0.1:8000/mcp/
 ```
+
+## Run it locally (CLI & Docker)
+
+> **Mode B — standalone daemon.** This section is the no-code path: a configured daemon you
+> point your agent at. For embedding the gateway in your own FastAPI app, see
+> [Quickstart](#quickstart) (Mode A) instead.
+
+Don't want to write Python? Install the CLI extra and run the gateway as a local daemon,
+then point your coding agent (Claude Code, etc.) at the one endpoint.
+
+```bash
+uv add "fast-gateway[cli]"      # or: pip install "fast-gateway[cli]"
+fast-gateway serve --config examples/gateway.json
+# MCP endpoint  : http://127.0.0.1:8000/mcp/
+# Admin API     : http://127.0.0.1:8000/admin
+# HIL approvals : http://127.0.0.1:8000/admin/hil
+```
+
+Register your upstream MCP servers once, from another shell — they persist in the
+SQLite registry and reload live:
+
+```bash
+fast-gateway add deepwiki https://mcp.deepwiki.com/mcp
+fast-gateway add context7 https://mcp.context7.com/mcp --deny "*_delete_*"
+fast-gateway list
+fast-gateway group create readonly
+fast-gateway group members readonly --server deepwiki --server context7
+```
+
+Then connect your agent **once** — and never reconfigure it again:
+
+```bash
+fast-gateway connect          # prints the `claude mcp add …` command + a .mcp.json block
+# claude mcp add --transport http gateway http://127.0.0.1:8000/mcp/
+```
+
+Because the agent points at one stable endpoint, **adding more servers later needs no
+agent changes** — the new tools flow through the same `/mcp` and appear the next time the
+agent lists tools (on (re)connect). See `fast-gateway --help` for `remove`, `enable`,
+`disable`, `reload`, and `group` commands.
+
+> [!NOTE]
+> Upstreams are **HTTP/SSE** only. To put a local **stdio** server (e.g. `npx …`) behind
+> the gateway, bridge it to HTTP first — `fastmcp run your_server.py --transport http`
+> or a tool like `mcp-proxy` — then `fast-gateway add` the resulting URL.
+
+### OAuth-protected upstreams
+
+Many hosted MCP servers (Datadog, etc.) require an OAuth login. Register the server with
+`--oauth`, then run the browser login **once** — tokens are cached on disk and refreshed
+automatically thereafter, so the gateway connects unattended after that.
+
+```bash
+fast-gateway add datadog https://<your-dd-mcp-endpoint> --oauth --scope read
+fast-gateway login datadog          # opens the browser, completes OAuth, caches tokens
+```
+
+The login flow also runs automatically the first time the gateway connects to an `--oauth`
+server, but running `login` up front avoids a surprise browser popup mid-reload. Tokens live
+under `~/.fast-gateway/oauth` (override with `oauth_token_dir` in the config or
+`$FAST_GATEWAY_OAUTH_DIR`); the cache is shared between the CLI and the daemon. For headless
+hosts, run `login` on a machine with a browser, or use the upstream's API-key header fallback
+via `--header`.
+
+### Human-in-the-loop, in the browser
+
+The config's `policy` object drives governance with plain globs: `deny` hard-blocks tools,
+`confirm` routes them through human approval, and `audit` logs every call.
+
+```jsonc
+// gateway.json
+{
+  "policy": {
+    "confirm": ["*_delete_*", "*_write_*"],   // these need a human "yes"
+    "audit": true
+  },
+  "hil": { "enabled": true, "auto_open_browser": true }
+}
+```
+
+When an agent calls a `confirm`-matched tool, the gateway **opens a browser approval page**
+showing the tool name, its arguments, and the reason, and **blocks the call** until you
+click **Approve** or **Deny** (a timeout denies — fail-safe). The approval page lives at
+`/admin/hil`; in a headless/Docker run the approval URL is logged for you to open manually.
+
+### Docker
+
+```bash
+cp examples/gateway.json gateway.json     # edit to taste
+docker compose up --build                 # serves on http://localhost:8000
+fast-gateway add deepwiki https://mcp.deepwiki.com/mcp   # CLI talks to the mapped port
+```
+
+The image ships the gateway + CLI; the registry DB persists on the `gateway-data` volume.
+(stdio upstreams need their runtimes — bridge them to HTTP as noted above.)
 
 ## Hooks
 
@@ -343,7 +468,8 @@ all targets.
 | 3 | Groups + per-server/group allow-deny + group-scoped `/mcp/g/{group}` endpoints | done |
 | — | Plugin system + agent-os policy integration | done |
 | 4 | `search_tools` / `describe_tool` meta-tools + catalog cache | done |
-| 5 | Reference hooks (audit, allow/deny, confirmation), docs, packaging | planned |
+| 5 | Reference hooks (audit, deny, confirmation), docs, packaging | done |
+| 6 | Local CLI (`fast-gateway`), JSON config + policy, browser HIL, upstream OAuth, Docker | done |
 
 ## License
 

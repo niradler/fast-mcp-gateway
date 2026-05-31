@@ -21,6 +21,7 @@ from fast_gateway.models import (
     GroupCreate,
     GroupPatch,
     GroupRecord,
+    ServerAuth,
     ServerCreate,
     ServerPatch,
     ServerRecord,
@@ -40,9 +41,16 @@ CREATE TABLE IF NOT EXISTS servers (
     deny            TEXT NOT NULL DEFAULT '[]',
     timeout_seconds REAL NOT NULL DEFAULT 30.0,
     enabled         INTEGER NOT NULL DEFAULT 1,
-    tags            TEXT NOT NULL DEFAULT '[]'
+    tags            TEXT NOT NULL DEFAULT '[]',
+    auth            TEXT NOT NULL DEFAULT 'none',
+    oauth_scopes    TEXT NOT NULL DEFAULT '[]'
 )
 """
+
+_SERVER_MIGRATION_COLUMNS: list[tuple[str, str]] = [
+    ("auth", "TEXT NOT NULL DEFAULT 'none'"),
+    ("oauth_scopes", "TEXT NOT NULL DEFAULT '[]'"),
+]
 
 _CREATE_GROUPS = """
 CREATE TABLE IF NOT EXISTS groups (
@@ -74,7 +82,10 @@ CREATE VIRTUAL TABLE IF NOT EXISTS catalog_fts
 USING fts5(name, bare_name, description, tags)
 """
 
-_COLUMNS = "id, name, transport, url, static_headers, allow, deny, timeout_seconds, enabled, tags"
+_COLUMNS = (
+    "id, name, transport, url, static_headers, allow, deny, "
+    "timeout_seconds, enabled, tags, auth, oauth_scopes"
+)
 _GROUP_COLUMNS = "id, name, member_server_ids, allow, deny"
 _CATALOG_COLUMNS = (
     "name, server_id, namespace, bare_name, title, description, "
@@ -109,6 +120,8 @@ def _row_to_server(row: aiosqlite.Row) -> ServerRecord:
         timeout_seconds=row["timeout_seconds"],
         enabled=bool(row["enabled"]),
         tags=json.loads(row["tags"]),
+        auth=ServerAuth(row["auth"]),
+        oauth_scopes=json.loads(row["oauth_scopes"]),
     )
 
 
@@ -124,6 +137,8 @@ def _server_values(record: ServerRecord) -> tuple[object, ...]:
         record.timeout_seconds,
         int(record.enabled),
         json.dumps(record.tags),
+        record.auth.value,
+        json.dumps(record.oauth_scopes),
     )
 
 
@@ -215,6 +230,22 @@ class SqliteStore:
             raise RuntimeError("SqliteStore is not initialized; call initialize() first.")
         return self._db
 
+    async def _ensure_server_columns(self) -> None:
+        """Add any columns in ``_SERVER_MIGRATION_COLUMNS`` that are absent from the servers table.
+
+        Idempotent: runs on every startup so existing databases are migrated on first use
+        after upgrade. Uses ``PRAGMA table_info`` to detect which columns are missing before
+        issuing ``ALTER TABLE`` statements, so it is safe to call on a fresh or migrated DB.
+        """
+        cursor = await self._conn.execute("PRAGMA table_info(servers)")
+        rows = await cursor.fetchall()
+        existing = {row["name"] for row in rows}
+        for col_name, col_ddl in _SERVER_MIGRATION_COLUMNS:
+            if col_name not in existing:
+                await self._conn.execute(f"ALTER TABLE servers ADD COLUMN {col_name} {col_ddl}")
+                logger.info("Migrated servers table: added column %s", col_name)
+        await self._conn.commit()
+
     async def initialize(self) -> None:
         """Open the connection and create tables if they do not exist.
 
@@ -227,6 +258,7 @@ class SqliteStore:
         await self._db.execute(_CREATE_SERVERS)
         await self._db.execute(_CREATE_GROUPS)
         await self._db.execute(_CREATE_CATALOG)
+        await self._ensure_server_columns()
         try:
             await self._db.execute(_CREATE_CATALOG_FTS)
             self._fts_enabled = True
@@ -258,7 +290,7 @@ class SqliteStore:
         async with self._write_lock:
             try:
                 await self._conn.execute(
-                    f"INSERT INTO servers ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    f"INSERT INTO servers ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     _server_values(record),
                 )
                 await self._conn.commit()
@@ -275,7 +307,8 @@ class SqliteStore:
             try:
                 await self._conn.execute(
                     "UPDATE servers SET name = ?, transport = ?, url = ?, static_headers = ?, "
-                    "allow = ?, deny = ?, timeout_seconds = ?, enabled = ?, tags = ? WHERE id = ?",
+                    "allow = ?, deny = ?, timeout_seconds = ?, enabled = ?, tags = ?, "
+                    "auth = ?, oauth_scopes = ? WHERE id = ?",
                     (*_server_values(updated)[1:], server_id),
                 )
                 await self._conn.commit()
