@@ -15,6 +15,9 @@ from typing import cast
 
 from pydantic import BaseModel, Field
 
+DEFAULT_CONFIG_DIR = Path.home() / ".fast-gateway"
+DEFAULT_CONFIG_PATH = DEFAULT_CONFIG_DIR / "gateway.json"
+
 
 class HilConfig(BaseModel):
     """Human-in-the-loop timing and UI settings."""
@@ -104,14 +107,86 @@ def apply_oauth_token_dir(cfg: GatewayConfig) -> None:
 def load_config(path: str | Path | None) -> GatewayConfig:
     """Load :class:`GatewayConfig` from a JSON file, or all-defaults when *path* is None.
 
-    The JSON object's keys map to :class:`GatewayConfig`, with nested ``policy`` and
-    ``hil`` objects. When ``policy_file`` is set, that file is loaded via
-    :func:`load_policy` and replaces any inline ``policy`` object.
+    Relative ``db`` and ``policy_file`` paths are resolved against the config file's
+    directory so a config in ``~/.fast-gateway/`` writes its sqlite db there too.
+    When ``policy_file`` is set it replaces any inline ``policy`` object.
     """
     if path is None:
         return GatewayConfig()
-    data = _read_json_object(Path(path))
+    cfg_path = Path(path).expanduser().resolve()
+    data = _read_json_object(cfg_path)
     cfg = GatewayConfig.model_validate(data)
+    base_dir = cfg_path.parent
+    updates: dict[str, object] = {}
+    db_path = Path(cfg.db).expanduser()
+    if not db_path.is_absolute():
+        updates["db"] = str((base_dir / db_path).resolve())
     if cfg.policy_file is not None:
-        cfg = cfg.model_copy(update={"policy": load_policy(cfg.policy_file)})
+        policy_path = Path(cfg.policy_file).expanduser()
+        if not policy_path.is_absolute():
+            policy_path = (base_dir / policy_path).resolve()
+        updates["policy"] = load_policy(policy_path)
+    if updates:
+        cfg = cfg.model_copy(update=updates)
     return cfg
+
+
+_DEFAULT_CONFIG_JSON: dict[str, object] = {
+    "name": "MCP Gateway",
+    "db": "gateway.db",
+    "host": "127.0.0.1",
+    "port": 8000,
+    "mcp_path": "/mcp",
+    "admin_prefix": "/admin",
+    "admin_token": None,
+    "policy_file": None,
+    "oauth_token_dir": None,
+    "policy": {
+        "deny": [],
+        "confirm": ["*_delete_*", "*_write_*", "*_purge_*", "*_remove_*"],
+        "audit": True,
+    },
+    "hil": {
+        "enabled": True,
+        "auto_open_browser": True,
+        "timeout_seconds": 300,
+        "approval_base_url": "http://127.0.0.1:8000/admin/hil",
+    },
+}
+
+
+def write_default_config(path: Path) -> None:
+    """Write the bundled default gateway config to *path* (parents created as needed)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as fh:
+        json.dump(_DEFAULT_CONFIG_JSON, fh, indent=2)
+        fh.write("\n")
+
+
+def resolve_config_path(explicit: str | Path | None) -> tuple[Path, bool]:
+    """Resolve which config file to use, returning ``(path, created)``.
+
+    Resolution order: ``explicit`` argument > ``$FAST_GATEWAY_CONFIG`` env var >
+    ``./gateway.json`` if it exists > ``~/.fast-gateway/gateway.json``. The last
+    fallback is auto-created with the bundled defaults if it doesn't exist;
+    ``created`` is ``True`` in that case so callers can print a one-line notice.
+    """
+    if explicit is not None:
+        p = Path(explicit).expanduser().resolve()
+        if not p.exists():
+            raise FileNotFoundError(f"Config file not found: {p}")
+        return p, False
+    env = os.environ.get("FAST_GATEWAY_CONFIG")
+    if env:
+        p = Path(env).expanduser().resolve()
+        if not p.exists():
+            raise FileNotFoundError(f"Config file from FAST_GATEWAY_CONFIG not found: {p}")
+        return p, False
+    cwd_cfg = Path.cwd() / "gateway.json"
+    if cwd_cfg.exists():
+        return cwd_cfg.resolve(), False
+    default = DEFAULT_CONFIG_PATH
+    if default.exists():
+        return default, False
+    write_default_config(default)
+    return default, True

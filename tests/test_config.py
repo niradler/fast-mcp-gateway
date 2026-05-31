@@ -17,6 +17,8 @@ from fast_gateway.config import (
     apply_oauth_token_dir,
     load_config,
     load_policy,
+    resolve_config_path,
+    write_default_config,
 )
 
 
@@ -65,7 +67,7 @@ def test_load_config_full_json(tmp_path: Path) -> None:
     )
     cfg = load_config(f)
     assert cfg.name == "My Gateway"
-    assert cfg.db == "custom.db"
+    assert cfg.db == str((tmp_path / "custom.db").resolve())
     assert cfg.host == "0.0.0.0"
     assert cfg.port == 9000
     assert cfg.mcp_path == "/mcp/v1"
@@ -85,7 +87,7 @@ def test_load_config_partial_keys(tmp_path: Path) -> None:
     cfg = load_config(f)
     assert cfg.name == "Flat Gateway"
     assert cfg.port == 7777
-    assert cfg.db == "gateway.db"
+    assert cfg.db == str((tmp_path / "gateway.db").resolve())
 
 
 def test_load_config_policy_file_wins_over_inline(tmp_path: Path) -> None:
@@ -198,3 +200,51 @@ def test_apply_oauth_token_dir_leaves_env_unchanged_when_none(
     cfg = GatewayConfig(oauth_token_dir=None)
     apply_oauth_token_dir(cfg)
     assert "FAST_GATEWAY_OAUTH_DIR" not in os.environ
+
+
+def test_load_config_resolves_relative_policy_file(tmp_path: Path) -> None:
+    write_json(tmp_path, "policy.json", {"deny": ["x_*"], "confirm": [], "audit": True})
+    gateway_file = write_json(tmp_path, "gateway.json", {"policy_file": "policy.json"})
+    cfg = load_config(gateway_file)
+    assert cfg.policy.deny == ["x_*"]
+
+
+def test_resolve_config_path_explicit_must_exist(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        resolve_config_path(tmp_path / "missing.json")
+
+
+def test_resolve_config_path_env_var(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    f = write_json(tmp_path, "gateway.json", {"name": "Env"})
+    monkeypatch.setenv("FAST_GATEWAY_CONFIG", str(f))
+    path, created = resolve_config_path(None)
+    assert path == f.resolve()
+    assert created is False
+
+
+def test_resolve_config_path_autocreate_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("FAST_GATEWAY_CONFIG", raising=False)
+    fake_home = tmp_path / "home"
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("fast_gateway.config.DEFAULT_CONFIG_DIR", fake_home / ".fast-gateway")
+    monkeypatch.setattr(
+        "fast_gateway.config.DEFAULT_CONFIG_PATH",
+        fake_home / ".fast-gateway" / "gateway.json",
+    )
+    path, created = resolve_config_path(None)
+    assert created is True
+    assert path == fake_home / ".fast-gateway" / "gateway.json"
+    assert path.exists()
+    cfg = load_config(path)
+    assert cfg.name == "MCP Gateway"
+
+
+def test_write_default_config_creates_parents(tmp_path: Path) -> None:
+    target = tmp_path / "nested" / "deep" / "gateway.json"
+    write_default_config(target)
+    assert target.exists()
+    payload = json.loads(target.read_text())
+    assert payload["name"] == "MCP Gateway"

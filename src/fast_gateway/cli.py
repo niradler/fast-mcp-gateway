@@ -17,10 +17,16 @@ from fastmcp.client.transports.http import StreamableHttpTransport
 from fastmcp.client.transports.sse import SSETransport
 from pydantic import ValidationError
 
-from fast_gateway.config import apply_oauth_token_dir, load_config
+from fast_gateway.config import (
+    GatewayConfig,
+    apply_oauth_token_dir,
+    resolve_config_path,
+)
+from fast_gateway.config import load_config as _load_config_file
 from fast_gateway.factory import build_app
 from fast_gateway.models import ServerAuth, ServerCreate, ServerRecord, Transport
 from fast_gateway.plugins.oauth import build_oauth, default_oauth_token_dir
+from fast_gateway.store import SqliteStore
 
 logger = logging.getLogger("fast_gateway.cli")
 
@@ -38,6 +44,25 @@ def make_client(gateway_url: str, admin_token: str | None) -> httpx.Client:
     if admin_token:
         headers["Authorization"] = f"Bearer {admin_token}"
     return httpx.Client(base_url=gateway_url, headers=headers)
+
+
+def _load_cli_config(explicit: Path | None) -> GatewayConfig:
+    """Resolve and load the gateway config, auto-creating defaults on first run.
+
+    Wraps :func:`resolve_config_path` + :func:`load_config` and prints a one-line
+    notice when the default ``~/.fast-gateway/gateway.json`` is created. Also
+    applies ``oauth_token_dir`` so subsequent OAuth lookups agree with the daemon.
+    """
+    try:
+        path, created = resolve_config_path(explicit)
+    except FileNotFoundError as exc:
+        typer.echo(f"Error: {exc}", err=True)
+        raise typer.Exit(1) from exc
+    if created:
+        typer.echo(f"Created default config at {path}")
+    cfg = _load_config_file(path)
+    apply_oauth_token_dir(cfg)
+    return cfg
 
 
 def _resolve_url(gateway_url: str | None) -> str:
@@ -140,11 +165,7 @@ def serve(
     db: Annotated[str | None, typer.Option("--db")] = None,
 ) -> None:
     """Load config and run the gateway with uvicorn."""
-    try:
-        cfg = load_config(config)
-    except FileNotFoundError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(1) from exc
+    cfg = _load_cli_config(config)
 
     if host is not None:
         cfg = cfg.model_copy(update={"host": host})
@@ -158,8 +179,46 @@ def serve(
     typer.echo(f"Admin API    : {base}{cfg.admin_prefix}")
     typer.echo(f"OpenAPI docs : {base}/docs")
 
+    _print_oauth_status(cfg)
+
     gateway_app = build_app(cfg)
     uvicorn.run(gateway_app, host=cfg.host, port=cfg.port)
+
+
+def _print_oauth_status(cfg: GatewayConfig) -> None:
+    """Print, for each OAuth-enabled server in the registry, whether tokens are cached.
+
+    Best-effort: any failure (missing db, store error) is silently swallowed so a
+    fresh install with no registry yet doesn't show a scary trace on startup.
+    """
+
+    async def _gather() -> list[tuple[str, bool]]:
+        store = SqliteStore(cfg.db)
+        try:
+            await store.initialize()
+            servers = await store.list_servers()
+        finally:
+            await store.close()
+        oauth_servers = [s for s in servers if s.auth is ServerAuth.OAUTH]
+        out: list[tuple[str, bool]] = []
+        for srv in oauth_servers:
+            oauth = build_oauth(srv, interactive=False)
+            tokens = await oauth.token_storage_adapter.get_tokens()
+            out.append((srv.name, tokens is not None))
+        return out
+
+    try:
+        status = asyncio.run(_gather())
+    except Exception:
+        return
+    if not status:
+        return
+    typer.echo("OAuth status :")
+    for name, has_tokens in status:
+        if has_tokens:
+            typer.echo(f"  - {name}: ready")
+        else:
+            typer.echo(f"  - {name}: NOT logged in (run: fast-gateway login {name})")
 
 
 @app.command()
@@ -224,6 +283,8 @@ def add(
 
     server = r.json()
     typer.echo(f"Created server {server['name']!r} (id={server['id']})")
+    if oauth:
+        typer.echo(f"Next: fast-gateway login {server['name']}")
 
     if not no_reload:
         _do_reload(client, prefix)
@@ -440,13 +501,7 @@ def login(
     admin_prefix: Annotated[str | None, typer.Option("--admin-prefix")] = None,
 ) -> None:
     """Run the OAuth login flow for an upstream server and cache the tokens locally."""
-    if config is not None:
-        try:
-            cfg = load_config(config)
-        except FileNotFoundError as exc:
-            typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(1) from exc
-        apply_oauth_token_dir(cfg)
+    _load_cli_config(config)
 
     resolved_url = _resolve_url(gateway_url)
     token = _resolve_token(admin_token)
@@ -478,11 +533,16 @@ def login(
         raise typer.Exit(1)
 
     typer.echo(f"Logging in to '{server.name}' - a browser window will open...")
+    mcp_oauth_logger = logging.getLogger("mcp.client.auth.oauth2")
+    prior_level = mcp_oauth_logger.level
+    mcp_oauth_logger.setLevel(logging.CRITICAL)
     try:
         run_oauth_login(server)
     except Exception as exc:
         typer.echo(f"Error: login failed - {exc}", err=True)
         raise typer.Exit(1) from exc
+    finally:
+        mcp_oauth_logger.setLevel(prior_level)
 
     typer.echo("Login complete; tokens cached.")
 
@@ -501,13 +561,7 @@ def logout(
     the token cache entry for that server URL. The next gateway connect will require
     a fresh ``login`` to re-authorise.
     """
-    if config is not None:
-        try:
-            cfg = load_config(config)
-        except FileNotFoundError as exc:
-            typer.echo(f"Error: {exc}", err=True)
-            raise typer.Exit(1) from exc
-        apply_oauth_token_dir(cfg)
+    _load_cli_config(config)
 
     resolved_url = _resolve_url(gateway_url)
     token = _resolve_token(admin_token)

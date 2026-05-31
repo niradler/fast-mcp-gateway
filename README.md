@@ -176,12 +176,20 @@ Don't want to write Python? Install the CLI extra and run the gateway as a local
 then point your coding agent (Claude Code, etc.) at the one endpoint.
 
 ```bash
-uv add "fast-gateway[cli]"      # or: pip install "fast-gateway[cli]"
-fast-gateway serve --config examples/gateway.json
+uv tool install --from fast-gateway 'fast-gateway[cli]'   # or: pipx install 'fast-gateway[cli]'
+# or, from a checkout: uv tool install --from . 'fast-gateway[cli]'
+fast-gateway serve
+# Created default config at /Users/you/.fast-gateway/gateway.json   ← first run only
 # MCP endpoint  : http://127.0.0.1:8000/mcp/
 # Admin API     : http://127.0.0.1:8000/admin
-# HIL approvals : http://127.0.0.1:8000/admin/hil
+# OpenAPI docs  : http://127.0.0.1:8000/docs
+# OAuth status  :   - datadog: ready                               ← per OAuth upstream
 ```
+
+`fast-gateway` auto-creates `~/.fast-gateway/gateway.json` (with sane policy + HIL
+defaults) on first run; subsequent runs reuse it. Override with `--config <path>`,
+`$FAST_GATEWAY_CONFIG`, or drop a `./gateway.json` next to your shell — the CLI checks
+all three in that order.
 
 Register your upstream MCP servers once, from another shell — they persist in the
 SQLite registry and reload live:
@@ -225,10 +233,14 @@ fast-gateway logout datadog         # clear the cached tokens for a server
 
 Run `login` up front to avoid a browser popup during a daemon reload. Tokens live under
 `~/.fast-gateway/oauth` (override with `oauth_token_dir` in the config or
-`$FAST_GATEWAY_OAUTH_DIR`); the cache is shared between the CLI and the daemon, but both
-must resolve the same directory — pass `--config` to `login`/`logout` when you customise
-`oauth_token_dir`. For headless hosts, run `login` on a machine with a browser, or use the
-upstream's API-key header fallback via `--header`.
+`$FAST_GATEWAY_OAUTH_DIR`); the cache is shared between the CLI and the daemon. The CLI
+auto-discovers the same config the daemon uses, so a customised `oauth_token_dir` is
+picked up automatically — no need to pass `--config` to `login`/`logout` unless you want
+to point at a non-default file. For headless hosts, run `login` on a machine with a
+browser, or use the upstream's API-key header fallback via `--header`. After a fresh
+`fast-gateway add datadog … --oauth`, the CLI prints `Next: fast-gateway login datadog`
+as a reminder, and `fast-gateway serve` reports per-server token status at startup so
+you can spot a missing login before any agent traffic hits it.
 
 > [!WARNING]
 > **Security: the `/mcp` endpoint is unauthenticated.** The daemon holds upstream OAuth
