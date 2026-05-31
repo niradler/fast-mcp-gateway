@@ -1,0 +1,28 @@
+# Local fast-gateway stack. Start with:  docker compose up --build
+# Then point your coding agent at  http://localhost:8000/mcp/  (see `fast-gateway connect`).
+# Add upstreams from the host with:  fast-gateway add <name> <url>
+#   (the CLI talks to the admin API on the mapped port).
+
+services:
+  gateway:
+    build: .
+    image: fast-gateway:local
+    ports:
+      - "8000:8000"
+    volumes:
+      # Edit ./gateway.json on the host (copy examples/gateway.json) to change settings.
+      - ./gateway.json:/config/gateway.json:ro
+      - gateway-data:/data
+    # environment:
+    #   # SECURITY: Set an admin token to protect /admin from unauthenticated access.
+    #   # Also pass it to CLI commands via --admin-token or FAST_GATEWAY_ADMIN_TOKEN.
+    #   FAST_GATEWAY_ADMIN_TOKEN: change-me
+    #
+    #   # NOTE: The /mcp endpoint is UNAUTHENTICATED. The daemon holds upstream OAuth
+    #   # credentials. Do not expose port 8000 (0.0.0.0 below is required for Docker
+    #   # port mapping but does not mean the port is safe to expose externally).
+    #   # Use a firewall or reverse proxy to restrict access to trusted clients only.
+    restart: unless-stopped
+
+volumes:
+  gateway-data:

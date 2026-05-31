@@ -1,7 +1,8 @@
 """Builds the per-server async client factory that FastMCP's proxy uses to connect.
 
-Runs ``pre_mcp_connect`` hooks on each call; hook headers layer over static ones
-(dynamic/auth headers win). An async factory is required because hooks must be awaited.
+Runs ``pre_mcp_connect`` hooks; hook headers layer over static ones (dynamic wins).
+The ``auth`` field in :class:`ConnectSettings` carries an httpx-compatible auth
+provider; the last hook to set one wins and it is forwarded to the transport.
 """
 
 from __future__ import annotations
@@ -21,15 +22,16 @@ ClientFactory = Callable[[], Awaitable[ProxyClient[Any]]]
 
 async def resolve_connect_settings(
     server: ServerRecord, hooks: Hooks
-) -> tuple[dict[str, str], float]:
-    """Run ``pre_mcp_connect`` hooks and return the effective headers and timeout.
+) -> tuple[dict[str, str], float, Any | None]:
+    """Run ``pre_mcp_connect`` hooks and return the effective headers, timeout, and auth.
 
     Headers start from the server's static headers and each hook's headers are
-    layered on top (so dynamic/auth headers win). A hook may override the timeout;
-    the last hook to set one wins.
+    layered on top (so dynamic/auth headers win). A hook may override the timeout
+    or supply an auth provider; the last hook to set each wins.
     """
     headers = dict(server.static_headers)
     timeout = server.timeout_seconds
+    auth: Any | None = None
     context = ConnectContext(server=server)
 
     for hook in hooks.pre_mcp_connect:
@@ -39,16 +41,18 @@ async def resolve_connect_settings(
         headers.update(settings.headers)
         if settings.timeout_seconds is not None:
             timeout = settings.timeout_seconds
+        if settings.auth is not None:
+            auth = settings.auth
 
-    return headers, timeout
+    return headers, timeout, auth
 
 
 def _build_transport(
-    server: ServerRecord, headers: dict[str, str]
+    server: ServerRecord, headers: dict[str, str], auth: Any | None
 ) -> StreamableHttpTransport | SSETransport:
     if server.transport is Transport.SSE:
-        return SSETransport(server.url, headers=headers)
-    return StreamableHttpTransport(server.url, headers=headers)
+        return SSETransport(server.url, headers=headers, auth=auth)
+    return StreamableHttpTransport(server.url, headers=headers, auth=auth)
 
 
 def build_client_factory(server: ServerRecord, hooks: Hooks) -> ClientFactory:
@@ -59,8 +63,8 @@ def build_client_factory(server: ServerRecord, hooks: Hooks) -> ClientFactory:
     """
 
     async def create_client() -> ProxyClient[Any]:
-        headers, timeout = await resolve_connect_settings(server, hooks)
-        transport = _build_transport(server, headers)
+        headers, timeout, auth = await resolve_connect_settings(server, hooks)
+        transport = _build_transport(server, headers, auth)
         return ProxyClient(transport, timeout=timeout)
 
     return create_client

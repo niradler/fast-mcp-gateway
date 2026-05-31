@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +12,7 @@ from fast_gateway.models import (
     CatalogTool,
     GroupCreate,
     GroupPatch,
+    ServerAuth,
     ServerCreate,
     ServerPatch,
     Transport,
@@ -304,3 +307,120 @@ async def test_search_catalog_nonalnum_query_browses(store: SqliteStore) -> None
 async def test_search_catalog_no_match_returns_empty(store: SqliteStore) -> None:
     await store.replace_catalog(catalog_sample())
     assert await store.search_catalog("zzzznomatch") == []
+
+
+# ---------------------------------------------------------------------------
+# ServerAuth / oauth_scopes round-trip
+# ---------------------------------------------------------------------------
+
+
+def oauth_sample(name: str = "datadog") -> ServerCreate:
+    return ServerCreate(
+        name=name,
+        transport=Transport.HTTP,
+        url="https://api.datadoghq.com/mcp",
+        auth=ServerAuth.OAUTH,
+        oauth_scopes=["user", "read:metrics"],
+    )
+
+
+async def test_create_oauth_server_roundtrips(store: SqliteStore) -> None:
+    created = await store.create_server(oauth_sample())
+    assert created.auth is ServerAuth.OAUTH
+    assert created.oauth_scopes == ["user", "read:metrics"]
+
+    fetched = await store.get_server(created.id)
+    assert fetched is not None
+    assert fetched.auth is ServerAuth.OAUTH
+    assert fetched.oauth_scopes == ["user", "read:metrics"]
+
+
+async def test_update_server_auth_and_scopes(store: SqliteStore) -> None:
+    created = await store.create_server(sample())
+    assert created.auth is ServerAuth.NONE
+
+    updated = await store.update_server(
+        created.id, ServerPatch(auth=ServerAuth.OAUTH, oauth_scopes=["admin"])
+    )
+    assert updated.auth is ServerAuth.OAUTH
+    assert updated.oauth_scopes == ["admin"]
+
+    refetched = await store.get_server(created.id)
+    assert refetched is not None
+    assert refetched.auth is ServerAuth.OAUTH
+    assert refetched.oauth_scopes == ["admin"]
+
+
+async def test_list_servers_includes_auth_fields(store: SqliteStore) -> None:
+    await store.create_server(oauth_sample())
+    servers = await store.list_servers()
+    assert len(servers) == 1
+    assert servers[0].auth is ServerAuth.OAUTH
+    assert servers[0].oauth_scopes == ["user", "read:metrics"]
+
+
+# ---------------------------------------------------------------------------
+# Migration: pre-existing DB without auth/oauth_scopes columns
+# ---------------------------------------------------------------------------
+
+_OLD_CREATE_SERVERS = """
+CREATE TABLE servers (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,
+    transport       TEXT NOT NULL,
+    url             TEXT NOT NULL,
+    static_headers  TEXT NOT NULL DEFAULT '{}',
+    allow           TEXT NOT NULL DEFAULT '[]',
+    deny            TEXT NOT NULL DEFAULT '[]',
+    timeout_seconds REAL NOT NULL DEFAULT 30.0,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    tags            TEXT NOT NULL DEFAULT '[]'
+)
+"""
+
+
+async def test_migration_adds_missing_columns(tmp_path: Path) -> None:
+    db_path = tmp_path / "old.db"
+    con = sqlite3.connect(str(db_path))
+    con.execute(_OLD_CREATE_SERVERS)
+    con.execute(
+        "INSERT INTO servers (id, name, transport, url) VALUES (?, ?, ?, ?)",
+        ("old-id", "legacy", "http", "https://legacy.example.com/mcp"),
+    )
+    con.commit()
+    con.close()
+
+    store = SqliteStore(str(db_path))
+    await store.initialize()
+
+    con2 = sqlite3.connect(str(db_path))
+    col_names = {row[1] for row in con2.execute("PRAGMA table_info(servers)")}
+    con2.close()
+
+    assert "auth" in col_names
+    assert "oauth_scopes" in col_names
+
+    servers = await store.list_servers()
+    assert len(servers) == 1
+    assert servers[0].name == "legacy"
+    assert servers[0].auth is ServerAuth.NONE
+    assert servers[0].oauth_scopes == []
+
+    await store.close()
+
+
+async def test_migration_idempotent_on_fresh_db(store: SqliteStore) -> None:
+    col_names_before = set()
+    cursor = await store._conn.execute("PRAGMA table_info(servers)")
+    rows = await cursor.fetchall()
+    col_names_before = {row["name"] for row in rows}
+
+    await store._ensure_server_columns()
+
+    cursor2 = await store._conn.execute("PRAGMA table_info(servers)")
+    rows2 = await cursor2.fetchall()
+    col_names_after = {row["name"] for row in rows2}
+
+    assert col_names_before == col_names_after
+    assert "auth" in col_names_after
+    assert "oauth_scopes" in col_names_after

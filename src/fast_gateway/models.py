@@ -18,10 +18,17 @@ _GROUP_NAME_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9_-]*$"
 
 class Transport(StrEnum):
     """Transport used to reach an upstream MCP server. The gateway proxies remote
-    servers only — local stdio subprocesses are out of scope."""
+    servers only - local stdio subprocesses are out of scope."""
 
     HTTP = "http"
     SSE = "sse"
+
+
+class ServerAuth(StrEnum):
+    """Upstream authentication scheme used when connecting to a registered server."""
+
+    NONE = "none"
+    OAUTH = "oauth"
 
 
 class ServerBase(BaseModel):
@@ -54,6 +61,17 @@ class ServerBase(BaseModel):
     timeout_seconds: float = Field(default=30.0, gt=0)
     enabled: bool = Field(default=True)
     tags: list[str] = Field(default_factory=list)
+    auth: ServerAuth = Field(
+        default=ServerAuth.NONE,
+        description=(
+            "Upstream auth scheme. 'oauth' runs FastMCP's browser OAuth flow on first "
+            "connect and caches tokens persistently."
+        ),
+    )
+    oauth_scopes: list[str] = Field(
+        default_factory=list,
+        description="OAuth scopes to request; empty = server/registration default.",
+    )
 
 
 class ServerCreate(ServerBase):
@@ -72,6 +90,8 @@ class ServerPatch(BaseModel):
     timeout_seconds: float | None = Field(default=None, gt=0)
     enabled: bool | None = None
     tags: list[str] | None = None
+    auth: ServerAuth | None = None
+    oauth_scopes: list[str] | None = None
 
 
 class ServerRecord(ServerBase):

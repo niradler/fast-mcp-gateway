@@ -56,9 +56,9 @@ class Gateway:
         """
         return self._lifespan
 
-    async def reload(self) -> None:
-        """Rebuild proxy mounts from the current registry."""
-        await self.builder.reload()
+    async def reload(self) -> list[str]:
+        """Rebuild proxy mounts from the current registry; return degraded server names."""
+        return await self.builder.reload()
 
     def install(
         self,
@@ -170,9 +170,9 @@ def _build_admin_router(store: Store, builder: GatewayBuilder, hooks: Hooks) -> 
     router.include_router(build_groups_router(store))
 
     @router.post("/reload", tags=["admin"])
-    async def reload() -> dict[str, str]:
+    async def reload() -> dict[str, object]:
         """Rebuild proxy mounts from the current registry."""
-        await builder.reload()
-        return {"status": "reloaded"}
+        degraded = await builder.reload()
+        return {"status": "reloaded", "degraded": degraded}
 
     return router

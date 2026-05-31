@@ -25,6 +25,9 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "fastapi>=0.136.3",
     "fastmcp>=3.3.1",
+    # Persistent OAuth token store (FileTreeStore) for upstream OAuth; ships with
+    # fastmcp's client auth, declared explicitly because connect.py imports it directly.
+    "py-key-value-aio>=0.4.5",
 ]
 
 [project.optional-dependencies]
@@ -37,6 +40,12 @@ dependencies = [
 # explicitly only so its git source (below) applies (uv sources bind to direct deps).
 # Once agent-os-kernel 4.x is on PyPI, drop the core line and the [tool.uv.sources] block.
 agt = ["agent-os-kernel>=4.0.0", "agent-governance-toolkit-core>=4.0.0"]
+# Local CLI + server runtime: the `fast-gateway` console script, `serve`, and the
+# admin-API client. Optional so the importable library stays lean.
+cli = ["typer>=0.15.0", "uvicorn[standard]>=0.30.0", "httpx>=0.28.1"]
+
+[project.scripts]
+fast-gateway = "fast_gateway.cli:app"
 
 [project.urls]
 Homepage = "https://github.com/niradler/fast-mcp-gateway"

@@ -36,19 +36,18 @@ class GatewayBuilder:
         self._baseline_providers: list[Provider] = list(mcp.providers)
         self._reload_lock = asyncio.Lock()
 
-    async def reload(self) -> None:
+    async def reload(self) -> list[str]:
         """Rebuild proxy mounts, access policy, and tool catalog from the current registry.
 
-        Serialized via ``_reload_lock`` so concurrent reloads cannot interleave store
-        reads, provider mutation, and catalog replacement. A ``tools/list`` landing
-        during catalog rewrite may see a transient partial view; a retry returns the full set.
+        Returns the names of servers whose introspection failed (empty when all healthy).
+        Serialized via ``_reload_lock`` so concurrent reloads cannot interleave store reads,
+        provider mutation, and catalog replacement.
         """
         async with self._reload_lock:
             servers = await self.store.list_servers()
             groups = await self.store.list_groups()
 
             if self.policy is not None:
-                # keep: rebuild from ALL servers (even disabled) for split_namespace
                 self.policy.rebuild(servers, groups)
 
             self.mcp.providers[:] = self._baseline_providers
@@ -75,8 +74,12 @@ class GatewayBuilder:
                 catalog = catalog + retained
             await self.store.replace_catalog(catalog)
 
+        id_to_name = {s.id: s.name for s in servers}
+        degraded = [id_to_name[sid] for sid in failed_ids if sid in id_to_name]
+
         logger.info(
             "Gateway reloaded: %d server(s) mounted, %d tool(s) cataloged.",
             mounted,
             len(catalog),
         )
+        return degraded

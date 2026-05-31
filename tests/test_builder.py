@@ -3,6 +3,8 @@ are skipped, and reloads are idempotent (no stale or duplicate mounts)."""
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, patch
+
 from fastmcp import FastMCP
 
 from fast_gateway.access import AccessPolicy
@@ -105,7 +107,6 @@ async def test_reload_updates_policy_on_second_reload() -> None:
     _mcp, builder, store, policy = await make_builder()
     rec = await store.create_server(server("svc"))
     await builder.reload()
-    # Initially no rules — all allowed
     assert policy.allows("svc_delete_all") is True
 
     from fast_gateway.models import ServerPatch
@@ -114,3 +115,39 @@ async def test_reload_updates_policy_on_second_reload() -> None:
     await builder.reload()
 
     assert policy.allows("svc_delete_all") is False
+
+
+async def test_reload_returns_empty_degraded_when_all_healthy() -> None:
+    """reload() returns an empty list when all enabled servers introspect cleanly."""
+    _mcp, builder, store, _ = await make_builder()
+    await store.create_server(server("alpha"))
+
+    with patch("fast_gateway.builder.collect_catalog", new=AsyncMock(return_value=([], set()))):
+        degraded = await builder.reload()
+
+    assert degraded == []
+
+
+async def test_reload_returns_degraded_server_name_on_introspection_failure() -> None:
+    """reload() returns the failing server's name when introspection raises."""
+    _mcp, builder, store, _ = await make_builder()
+    rec = await store.create_server(server("broken"))
+
+    async def _failing_catalog(servers: object, hooks: object) -> tuple[list[object], set[str]]:
+        return [], {rec.id}
+
+    with patch("fast_gateway.builder.collect_catalog", new=AsyncMock(side_effect=_failing_catalog)):
+        degraded = await builder.reload()
+
+    assert degraded == ["broken"]
+
+
+async def test_reload_healthy_server_not_in_degraded() -> None:
+    """A healthy server never appears in the degraded list."""
+    _mcp, builder, store, _ = await make_builder()
+    await store.create_server(server("good"))
+
+    with patch("fast_gateway.builder.collect_catalog", new=AsyncMock(return_value=([], set()))):
+        degraded = await builder.reload()
+
+    assert "good" not in degraded
