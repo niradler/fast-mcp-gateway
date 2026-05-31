@@ -19,7 +19,7 @@ many upstream MCP servers  ──►  fast-gateway  ──►  one governed /mcp
 ```
 
 > [!NOTE]
-> **Status: 0.0.2, under active development.** APIs may change. Implemented and tested:
+> **Status: 0.0.3, under active development.** APIs may change. Implemented and tested:
 > the server registry, proxy builder, full hook pipeline, groups with allow/deny,
 > group-scoped endpoints, the plugin system, the `search_tools` / `describe_tool`
 > meta-tools, the bundled reference hooks (audit / deny / confirm), the local

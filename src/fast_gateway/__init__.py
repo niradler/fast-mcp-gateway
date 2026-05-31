@@ -34,7 +34,7 @@ from fast_gateway.plugins.oauth import OAuthPlugin
 from fast_gateway.reference import audit_hook, confirm_hook, deny_hook
 from fast_gateway.store import SqliteStore, Store
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 __all__ = [
     "ConfirmationContext",
