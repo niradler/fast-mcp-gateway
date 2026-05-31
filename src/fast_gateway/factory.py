@@ -12,6 +12,8 @@ from fast_gateway.app import create_gateway
 from fast_gateway.config import GatewayConfig
 from fast_gateway.hil import HumanApprovalPlugin
 from fast_gateway.hooks import Hooks
+from fast_gateway.plugins import Plugin
+from fast_gateway.plugins.oauth import OAuthPlugin
 from fast_gateway.reference import audit_hook, confirm_hook, deny_hook
 from fast_gateway.store import SqliteStore
 
@@ -43,7 +45,8 @@ def build_app(config: GatewayConfig) -> FastAPI:
     post_tool_call = [audit_hook()] if config.policy.audit else []
     hooks = Hooks(pre_tool_call=pre_tool_call, post_tool_call=post_tool_call)
 
-    plugins = [HumanApprovalPlugin(config.hil)] if config.hil.enabled else []
+    hil_plugins: list[Plugin] = [HumanApprovalPlugin(config.hil)] if config.hil.enabled else []
+    plugins: list[Plugin] = [OAuthPlugin(), *hil_plugins]
 
     gateway = create_gateway(store, hooks, plugins=plugins, name=config.name)
 

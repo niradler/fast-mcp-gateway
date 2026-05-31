@@ -13,11 +13,13 @@ import httpx
 import typer
 import uvicorn
 from fastmcp import Client
+from fastmcp.client.transports.http import StreamableHttpTransport
+from fastmcp.client.transports.sse import SSETransport
 
 from fast_gateway.config import load_config
-from fast_gateway.connect import _build_transport, default_oauth_token_dir
 from fast_gateway.factory import build_app
 from fast_gateway.models import ServerAuth, ServerCreate, ServerRecord, Transport
+from fast_gateway.plugins.oauth import build_oauth, default_oauth_token_dir
 
 logger = logging.getLogger("fast_gateway.cli")
 
@@ -73,14 +75,21 @@ def _resolve_server_id(client: httpx.Client, prefix: str, name_or_id: str) -> st
 def run_oauth_login(server: ServerRecord) -> None:
     """Run the OAuth browser flow for *server* and cache the resulting tokens.
 
-    Wraps an async handshake (``fastmcp.Client`` ping) in ``asyncio.run`` so the
-    CLI can call it synchronously. Exposed at module level as a seam for tests.
+    Builds an OAuth-authenticated transport directly using ``build_oauth`` from the
+    OAuth plugin, then wraps an async ``fastmcp.Client`` ping in ``asyncio.run`` so
+    the CLI can call it synchronously. Exposed at module level as a seam for tests.
     """
 
     async def _login() -> None:
-        transport = _build_transport(server, dict(server.static_headers))
-        async with Client(transport) as client:
-            await client.ping()
+        oauth = build_oauth(server)
+        headers = dict(server.static_headers)
+        t: StreamableHttpTransport | SSETransport
+        if server.transport is Transport.SSE:
+            t = SSETransport(server.url, headers=headers, auth=oauth)
+        else:
+            t = StreamableHttpTransport(server.url, headers=headers, auth=oauth)
+        async with Client(t) as c:
+            await c.ping()
 
     asyncio.run(_login())
 

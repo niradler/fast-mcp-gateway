@@ -12,6 +12,7 @@ from fastapi import FastAPI
 
 from fast_gateway.config import GatewayConfig, HilConfig
 from fast_gateway.factory import build_app
+from fast_gateway.models import ServerAuth
 
 
 def _make_config(tmp_path: Path, **overrides: object) -> GatewayConfig:
@@ -98,3 +99,24 @@ async def test_hil_plugin_mounts_admin_route(tmp_path: Path) -> None:
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
             r = await c.get("/admin/hil")
             assert r.status_code == 200
+
+
+async def test_oauth_plugin_wired_in_build_app(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAST_GATEWAY_OAUTH_DIR", str(tmp_path / "tokens"))
+    cfg = _make_config(tmp_path)
+    application = build_app(cfg)
+    async with LifespanManager(application) as manager:
+        transport = httpx.ASGITransport(app=manager.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            payload = {
+                "name": "oauth-srv",
+                "url": "https://example.com/mcp",
+                "transport": "http",
+                "auth": ServerAuth.OAUTH,
+            }
+            r = await c.post("/admin/servers", json=payload)
+            assert r.status_code == 201
+            server = r.json()
+            assert server["auth"] == "oauth"

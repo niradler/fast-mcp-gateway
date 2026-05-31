@@ -194,6 +194,22 @@ profile is identical to a reload-invalidated in-memory cache, so it's a strict w
 Also fixed `tests/test_routing.py` ASGI `send` annotations (`dict` → `MutableMapping`) to
 satisfy the gate after a starlette type tightening.
 
+## OAuth plugin refactor (post-Milestone 6)
+
+OAuth behavior moved from core `connect.py` into `src/fast_gateway/plugins/oauth.py`
+as `OAuthPlugin` (Mode B only). Root cause: OAuth requires a human at a terminal to
+complete the browser auth-code flow — running it inside the embedded Mode-A mount is
+blocking and inappropriate for headless library use.
+
+Changes: `default_oauth_token_dir` and `build_oauth` deleted from `connect.py` and
+re-homed in `plugins/oauth.py`. `ConnectSettings` gains a generic `auth: Any | None`
+field; `resolve_connect_settings` returns a 3-tuple `(headers, timeout, auth)`;
+`_build_transport` gains an `auth` parameter and passes it to both transport
+constructors. `OAuthPlugin._attach_oauth` hook returns `ConnectSettings(auth=...)` for
+OAuth servers and `None` otherwise. `build_app` registers `OAuthPlugin()` unconditionally
+alongside the HIL plugin. `cli.py` builds its login transport using `build_oauth` directly.
+`create_gateway` (Mode A) receives nothing OAuth-related.
+
 ## Milestone 6 — Local CLI + Docker + browser HIL (DONE)
 
 **Final state (verified):** full gate green — `ruff format`/`ruff check`/`check_slop`

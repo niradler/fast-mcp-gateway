@@ -229,6 +229,14 @@ under `~/.fast-gateway/oauth` (override with `oauth_token_dir` in the config or
 hosts, run `login` on a machine with a browser, or use the upstream's API-key header fallback
 via `--header`.
 
+> [!NOTE]
+> OAuth is a **Mode-B-only feature** (`OAuthPlugin`), wired automatically by `build_app`
+> (the CLI / `fast-gateway serve` path). It is **not** registered in a Mode-A embedded
+> mount (`create_gateway` called directly). OAuth requires a human at a terminal to complete
+> the browser authorization-code flow, so it is not appropriate for a headless library
+> embedding. In Mode A, inject auth tokens via a `pre_mcp_connect` hook in `ConnectSettings`
+> instead — see the [Quickstart](#quickstart) example.
+
 ### Human-in-the-loop, in the browser
 
 The config's `policy` object drives governance with plain globs: `deny` hard-blocks tools,

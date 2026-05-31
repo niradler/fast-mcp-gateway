@@ -17,7 +17,7 @@ import mcp.types as mt
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.tools.base import Tool
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from fast_gateway.access import AccessPolicy, current_group
 from fast_gateway.models import ServerRecord
@@ -34,6 +34,14 @@ class ConnectSettings(BaseModel):
 
     headers: dict[str, str] = {}
     timeout_seconds: float | None = None
+    auth: Any | None = Field(
+        default=None,
+        description=(
+            "An httpx-compatible auth provider (e.g. FastMCP's ``OAuth``) to attach to "
+            "the upstream transport. ``Any`` avoids importing httpx/fastmcp auth types "
+            "into the core hooks module; the last hook to set a non-None value wins."
+        ),
+    )
 
 
 class ToolDecision(StrEnum):
