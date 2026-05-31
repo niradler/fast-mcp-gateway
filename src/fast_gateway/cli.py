@@ -15,8 +15,9 @@ import uvicorn
 from fastmcp import Client
 from fastmcp.client.transports.http import StreamableHttpTransport
 from fastmcp.client.transports.sse import SSETransport
+from pydantic import ValidationError
 
-from fast_gateway.config import load_config
+from fast_gateway.config import apply_oauth_token_dir, load_config
 from fast_gateway.factory import build_app
 from fast_gateway.models import ServerAuth, ServerCreate, ServerRecord, Transport
 from fast_gateway.plugins.oauth import build_oauth, default_oauth_token_dir
@@ -101,6 +102,14 @@ def _do_reload(client: httpx.Client, prefix: str) -> None:
     except httpx.HTTPError as exc:
         typer.echo(f"Error: reload failed - {exc}", err=True)
         raise typer.Exit(1) from exc
+    degraded: list[str] = r.json().get("degraded") or []
+    if degraded:
+        names = ", ".join(degraded)
+        typer.echo(
+            f"WARNING: {len(degraded)} server(s) failed introspection and may be serving "
+            f"stale tools: {names}. If a server uses OAuth, run: fast-gateway login <name>.",
+            err=True,
+        )
 
 
 def _resolve_group_id(client: httpx.Client, prefix: str, name_or_id: str) -> str:
@@ -374,7 +383,16 @@ def reload(
         typer.echo(f"Error: {exc.response.status_code} {exc.response.text}", err=True)
         raise typer.Exit(1) from exc
 
-    typer.echo(f"Reloaded: {r.json()}")
+    body = r.json()
+    typer.echo(f"Reloaded: {body['status']}")
+    degraded: list[str] = body.get("degraded") or []
+    if degraded:
+        names = ", ".join(degraded)
+        typer.echo(
+            f"WARNING: {len(degraded)} server(s) failed introspection and may be serving "
+            f"stale tools: {names}. If a server uses OAuth, run: fast-gateway login <name>.",
+            err=True,
+        )
 
 
 @app.command()
@@ -416,11 +434,20 @@ def info(
 @app.command()
 def login(
     name_or_id: Annotated[str, typer.Argument()],
+    config: Annotated[Path | None, typer.Option("--config", "-c")] = None,
     gateway_url: Annotated[str | None, typer.Option("--gateway-url")] = None,
     admin_token: Annotated[str | None, typer.Option("--admin-token")] = None,
     admin_prefix: Annotated[str | None, typer.Option("--admin-prefix")] = None,
 ) -> None:
     """Run the OAuth login flow for an upstream server and cache the tokens locally."""
+    if config is not None:
+        try:
+            cfg = load_config(config)
+        except FileNotFoundError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1) from exc
+        apply_oauth_token_dir(cfg)
+
     resolved_url = _resolve_url(gateway_url)
     token = _resolve_token(admin_token)
     prefix = _resolve_prefix(admin_prefix)
@@ -438,9 +465,17 @@ def login(
     srv_data = r.json()
     try:
         server = ServerRecord.model_validate(srv_data)
-    except Exception as exc:
+    except ValidationError as exc:
         typer.echo(f"Error: unexpected server response - {exc}", err=True)
         raise typer.Exit(1) from exc
+
+    if server.auth is not ServerAuth.OAUTH:
+        typer.echo(
+            f"Error: server '{server.name}' is not configured for OAuth"
+            f" (auth={server.auth.value}).",
+            err=True,
+        )
+        raise typer.Exit(1)
 
     typer.echo(f"Logging in to '{server.name}' - a browser window will open...")
     try:
@@ -455,28 +490,72 @@ def login(
 @app.command()
 def logout(
     name_or_id: Annotated[str, typer.Argument()],
+    config: Annotated[Path | None, typer.Option("--config", "-c")] = None,
     gateway_url: Annotated[str | None, typer.Option("--gateway-url")] = None,
     admin_token: Annotated[str | None, typer.Option("--admin-token")] = None,
     admin_prefix: Annotated[str | None, typer.Option("--admin-prefix")] = None,
 ) -> None:
     """Clear cached OAuth tokens for an upstream server.
 
-    Tokens are stored on disk in the token dir shown below. Deleting that directory
-    (or the files inside it) is always safe - the next connect will re-trigger the
-    browser flow.
+    Fetches the server record, builds a non-interactive OAuth provider, then clears
+    the token cache entry for that server URL. The next gateway connect will require
+    a fresh ``login`` to re-authorise.
     """
+    if config is not None:
+        try:
+            cfg = load_config(config)
+        except FileNotFoundError as exc:
+            typer.echo(f"Error: {exc}", err=True)
+            raise typer.Exit(1) from exc
+        apply_oauth_token_dir(cfg)
+
     resolved_url = _resolve_url(gateway_url)
     token = _resolve_token(admin_token)
     prefix = _resolve_prefix(admin_prefix)
 
     client = make_client(resolved_url, token)
-    _resolve_server_id(client, prefix, name_or_id)
+    server_id = _resolve_server_id(client, prefix, name_or_id)
+
+    try:
+        r = client.get(f"{prefix}/servers/{server_id}")
+        r.raise_for_status()
+    except httpx.HTTPError as exc:
+        typer.echo(f"Error: could not fetch server - {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    srv_data = r.json()
+    try:
+        server = ServerRecord.model_validate(srv_data)
+    except ValidationError as exc:
+        typer.echo(f"Error: unexpected server response - {exc}", err=True)
+        raise typer.Exit(1) from exc
+
+    if server.auth is not ServerAuth.OAUTH:
+        typer.echo(
+            f"Error: server '{server.name}' is not configured for OAuth"
+            f" (auth={server.auth.value}).",
+            err=True,
+        )
+        raise typer.Exit(1)
 
     token_dir = default_oauth_token_dir()
-    typer.echo(
-        f"Token cache directory: {token_dir}\n"
-        "Delete that directory (or specific files inside it) to clear cached tokens."
-    )
+    typer.echo(f"Token cache directory: {token_dir}")
+
+    oauth = build_oauth(server, interactive=False)
+
+    async def _logout() -> None:
+        existed = await oauth.token_storage_adapter.get_tokens() is not None
+        await oauth.token_storage_adapter.clear()
+        if existed:
+            typer.echo(f"Logged out '{server.name}'; cached tokens cleared.")
+        else:
+            typer.echo(f"No cached tokens for '{server.name}'; nothing to clear.")
+
+    try:
+        asyncio.run(_logout())
+    except Exception as exc:
+        typer.echo(f"Error: failed to clear tokens - {exc}", err=True)
+        raise typer.Exit(1) from exc
 
 
 @group_app.command(name="create")

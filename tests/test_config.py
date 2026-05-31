@@ -3,13 +3,21 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
-from fast_gateway.config import GatewayConfig, HilConfig, LocalPolicy, load_config, load_policy
+from fast_gateway.config import (
+    GatewayConfig,
+    HilConfig,
+    LocalPolicy,
+    apply_oauth_token_dir,
+    load_config,
+    load_policy,
+)
 
 
 def write_json(tmp_path: Path, name: str, data: dict[str, Any]) -> Path:
@@ -172,3 +180,21 @@ def test_load_config_string_path(tmp_path: Path) -> None:
     f = write_json(tmp_path, "gateway.json", {"port": 1234})
     cfg = load_config(str(f))
     assert cfg.port == 1234
+
+
+def test_apply_oauth_token_dir_sets_env_when_configured(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("FAST_GATEWAY_OAUTH_DIR", raising=False)
+    cfg = GatewayConfig(oauth_token_dir=str(tmp_path / "custom"))
+    apply_oauth_token_dir(cfg)
+    assert os.environ.get("FAST_GATEWAY_OAUTH_DIR") == str(tmp_path / "custom")
+
+
+def test_apply_oauth_token_dir_leaves_env_unchanged_when_none(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("FAST_GATEWAY_OAUTH_DIR", raising=False)
+    cfg = GatewayConfig(oauth_token_dir=None)
+    apply_oauth_token_dir(cfg)
+    assert "FAST_GATEWAY_OAUTH_DIR" not in os.environ

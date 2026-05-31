@@ -85,7 +85,12 @@ async def collect_catalog(
     failed_ids: set[str] = set()
     for server, result in zip(enabled, results, strict=True):
         if isinstance(result, BaseException):
-            logger.warning("Catalog introspection failed for server %r; skipping.", server.name)
+            logger.warning(
+                "Catalog introspection failed for server %r; retaining last-known tools. Cause: %s",
+                server.name,
+                result,
+                exc_info=result,
+            )
             failed_ids.add(server.id)
             continue
         catalog.extend(result)

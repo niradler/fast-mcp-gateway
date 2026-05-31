@@ -9,6 +9,7 @@ config sets ``policy_file`` it overrides any inline ``policy`` object.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import cast
 
@@ -87,6 +88,17 @@ def load_policy(path: str | Path) -> LocalPolicy:
     nested = data.get("policy")
     raw = cast(dict[str, object], nested) if isinstance(nested, dict) else data
     return LocalPolicy.model_validate(raw)
+
+
+def apply_oauth_token_dir(cfg: GatewayConfig) -> None:
+    """Set ``FAST_GATEWAY_OAUTH_DIR`` when *cfg* names a custom token directory.
+
+    Both ``factory.build_app`` and the CLI ``login``/``logout`` commands call this so
+    the daemon and the CLI always agree on which directory holds the token cache,
+    regardless of where the token-dir was configured.
+    """
+    if cfg.oauth_token_dir is not None:
+        os.environ["FAST_GATEWAY_OAUTH_DIR"] = cfg.oauth_token_dir
 
 
 def load_config(path: str | Path | None) -> GatewayConfig:

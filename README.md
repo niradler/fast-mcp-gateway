@@ -220,14 +220,22 @@ automatically thereafter, so the gateway connects unattended after that.
 ```bash
 fast-gateway add datadog https://<your-dd-mcp-endpoint> --oauth --scope read
 fast-gateway login datadog          # opens the browser, completes OAuth, caches tokens
+fast-gateway logout datadog         # clear the cached tokens for a server
 ```
 
-The login flow also runs automatically the first time the gateway connects to an `--oauth`
-server, but running `login` up front avoids a surprise browser popup mid-reload. Tokens live
-under `~/.fast-gateway/oauth` (override with `oauth_token_dir` in the config or
-`$FAST_GATEWAY_OAUTH_DIR`); the cache is shared between the CLI and the daemon. For headless
-hosts, run `login` on a machine with a browser, or use the upstream's API-key header fallback
-via `--header`.
+Run `login` up front to avoid a browser popup during a daemon reload. Tokens live under
+`~/.fast-gateway/oauth` (override with `oauth_token_dir` in the config or
+`$FAST_GATEWAY_OAUTH_DIR`); the cache is shared between the CLI and the daemon, but both
+must resolve the same directory — pass `--config` to `login`/`logout` when you customise
+`oauth_token_dir`. For headless hosts, run `login` on a machine with a browser, or use the
+upstream's API-key header fallback via `--header`.
+
+> [!WARNING]
+> **Security: the `/mcp` endpoint is unauthenticated.** The daemon holds upstream OAuth
+> refresh tokens, so **do not expose the mapped port to untrusted networks**. Set
+> `admin_token` in your config to protect the admin API. Inbound MCP authentication and
+> encryption-at-rest for the token cache are planned follow-ups — see the
+> [roadmap](#roadmap).
 
 > [!NOTE]
 > OAuth is a **Mode-B-only feature** (`OAuthPlugin`), wired automatically by `build_app`

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Awaitable, Callable
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, Header, HTTPException, params
 
 from fast_gateway.app import create_gateway
-from fast_gateway.config import GatewayConfig
+from fast_gateway.config import GatewayConfig, apply_oauth_token_dir
 from fast_gateway.hil import HumanApprovalPlugin
 from fast_gateway.hooks import Hooks
 from fast_gateway.plugins import Plugin
@@ -36,8 +35,7 @@ def build_app(config: GatewayConfig) -> FastAPI:
     ``connect.default_oauth_token_dir`` resolves to the configured path for the
     lifetime of this process.
     """
-    if config.oauth_token_dir is not None:
-        os.environ["FAST_GATEWAY_OAUTH_DIR"] = config.oauth_token_dir
+    apply_oauth_token_dir(config)
 
     store = SqliteStore(config.db)
 

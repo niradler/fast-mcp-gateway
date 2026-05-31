@@ -52,7 +52,10 @@ async def test_create_and_list_server(client: httpx.AsyncClient) -> None:
 async def test_reload_returns_ok(client: httpx.AsyncClient) -> None:
     r = await client.post("/admin/reload")
     assert r.status_code == 200
-    assert r.json()["status"] == "reloaded"
+    body = r.json()
+    assert body["status"] == "reloaded"
+    assert "degraded" in body
+    assert isinstance(body["degraded"], list)
 
 
 async def test_duplicate_server_is_409(client: httpx.AsyncClient) -> None:

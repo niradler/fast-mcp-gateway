@@ -8,8 +8,10 @@ see it as a no-op.
 
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
+from typing import Any
 
 from fastmcp.client.auth import OAuth
 from key_value.aio.stores.filetree import FileTreeStore
@@ -18,34 +20,80 @@ from fast_gateway.hooks import ConnectContext, ConnectSettings, Hooks
 from fast_gateway.models import ServerAuth, ServerRecord
 from fast_gateway.plugins import GatewayContext, PluginContributions
 
+logger = logging.getLogger("fast_gateway.plugins.oauth")
+
 
 def default_oauth_token_dir() -> Path:
     """Return the directory used for persistent OAuth token storage.
 
-    When ``FAST_GATEWAY_OAUTH_DIR`` is set that path is used; otherwise the
-    default is ``~/.fast-gateway/oauth``. The directory is created if absent.
+    When ``FAST_GATEWAY_OAUTH_DIR`` is set that path is used; otherwise
+    ``~/.fast-gateway/oauth``. On POSIX the directory is created 0700 (owner-only)
+    because it holds refresh tokens at rest; on Windows chmod is a no-op.
     """
     env = os.environ.get("FAST_GATEWAY_OAUTH_DIR")
     token_dir = Path(env) if env else Path.home() / ".fast-gateway" / "oauth"
     token_dir.mkdir(parents=True, exist_ok=True)
+    if os.name == "posix":
+        try:
+            token_dir.chmod(0o700)
+        except OSError as exc:
+            logger.warning(
+                "Could not restrict permissions on OAuth token dir %s (holds refresh tokens); "
+                "verify it is not readable by other users. Cause: %s",
+                token_dir,
+                exc,
+            )
     return token_dir
 
 
-def build_oauth(server: ServerRecord) -> OAuth:
-    """Return a persistent OAuth client provider for the given server.
+class _NonInteractiveOAuth(OAuth):
+    """OAuth provider for the daemon: raises immediately instead of opening a browser.
 
-    Tokens are stored in a shared ``FileTreeStore`` directory so the CLI login
-    process and the serve daemon both read/write the same cache. FastMCP
-    namespaces token entries by server URL internally, so a single directory is
-    safe for multiple servers.
+    The daemon must never block on a browser flow. When an upstream token expires
+    and cannot be refreshed, this raises so ``collect_catalog``'s per-server
+    error isolation handles it gracefully. Interactive login is a CLI-only action.
+    """
+
+    _login_hint: str
+
+    def __init__(self, *args: Any, login_hint: str, **kwargs: Any) -> None:
+        self._login_hint = login_hint
+        super().__init__(*args, **kwargs)
+
+    async def redirect_handler(self, authorization_url: str) -> None:
+        """Raise immediately; daemon never opens a browser.
+
+        Operators must run ``fast-gateway login <name>`` on a machine with a browser
+        to prime the token cache before or after the daemon starts.
+        """
+        raise RuntimeError(
+            f"Upstream requires interactive OAuth login. Run: fast-gateway login {self._login_hint}"
+        )
+
+
+def build_oauth(server: ServerRecord, *, interactive: bool = True) -> OAuth:
+    """Return an OAuth client provider for *server*.
+
+    ``interactive=True`` (default, CLI ``login``) returns the standard ``OAuth``
+    that opens a browser. ``interactive=False`` (daemon) returns
+    ``_NonInteractiveOAuth`` that raises on redirect instead of blocking 300 s.
+    Both share the same ``FileTreeStore`` token cache.
     """
     scopes: list[str] | None = server.oauth_scopes if server.oauth_scopes else None
     token_storage: FileTreeStore = FileTreeStore(data_directory=default_oauth_token_dir())
-    return OAuth(
+    if interactive:
+        return OAuth(
+            mcp_url=server.url,
+            scopes=scopes,
+            client_name="fast-gateway",
+            token_storage=token_storage,
+        )
+    return _NonInteractiveOAuth(
         mcp_url=server.url,
         scopes=scopes,
         client_name="fast-gateway",
         token_storage=token_storage,
+        login_hint=server.name,
     )
 
 
@@ -65,5 +113,5 @@ class OAuthPlugin:
 
     async def _attach_oauth(self, ctx: ConnectContext) -> ConnectSettings | None:
         if ctx.server.auth is ServerAuth.OAUTH:
-            return ConnectSettings(auth=build_oauth(ctx.server))
+            return ConnectSettings(auth=build_oauth(ctx.server, interactive=False))
         return None

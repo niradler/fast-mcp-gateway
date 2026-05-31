@@ -194,6 +194,18 @@ profile is identical to a reload-invalidated in-memory cache, so it's a strict w
 Also fixed `tests/test_routing.py` ASGI `send` annotations (`dict` → `MutableMapping`) to
 satisfy the gate after a starlette type tightening.
 
+## Known follow-ups (security)
+
+- **(a) Inbound MCP auth / open-proxy / confused-deputy risk.** The `/mcp` endpoint
+  is currently unauthenticated. Any client that can reach the port can call all proxied
+  tools, including those requiring upstream OAuth credentials held by the daemon. A
+  future `inbound_auth` hook or FastMCP middleware guard is needed before exposing the
+  daemon on a shared network.
+- **(b) Token encryption-at-rest.** OAuth refresh tokens are stored as plain JSON files
+  in the token cache directory (mode 0700, owner-only). A future enhancement should
+  encrypt them at rest (e.g. via a `key_value` backend backed by a secrets vault or
+  system keyring).
+
 ## OAuth plugin refactor (post-Milestone 6)
 
 OAuth behavior moved from core `connect.py` into `src/fast_gateway/plugins/oauth.py`

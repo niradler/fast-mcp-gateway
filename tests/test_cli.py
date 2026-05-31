@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Generator
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -355,7 +356,9 @@ def test_serve_config_overrides_apply(tmp_path: Path) -> None:
 
 def test_reload_command(mock_client_factory: MagicMock) -> None:
     mock_client_factory.return_value = httpx.Client(
-        transport=httpx.MockTransport(lambda r: httpx.Response(200, json={"status": "reloaded"})),
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, json={"status": "reloaded", "degraded": []})
+        ),
         base_url="http://127.0.0.1:8000",
     )
     result = runner.invoke(app, ["reload"])
@@ -529,12 +532,254 @@ def test_logout_prints_token_dir_path(
     def handler(req: httpx.Request) -> httpx.Response:
         if req.method == "GET" and req.url.path.endswith("/datadog"):
             return httpx.Response(200, json=_OAUTH_SERVER_RECORD)
+        if req.method == "GET" and req.url.path.endswith("/servers"):
+            return httpx.Response(200, json=[_OAUTH_SERVER_RECORD])
         return httpx.Response(404)
 
     mock_client_factory.return_value = httpx.Client(
         transport=httpx.MockTransport(handler), base_url="http://127.0.0.1:8000"
     )
 
-    result = runner.invoke(app, ["logout", "datadog"])
+    fake_provider = MagicMock()
+    fake_provider.token_storage_adapter = MagicMock()
+    fake_provider.token_storage_adapter.get_tokens = AsyncMock(return_value={"tok": "val"})
+    fake_provider.token_storage_adapter.clear = AsyncMock()
+
+    with patch("fast_gateway.cli.build_oauth", return_value=fake_provider):
+        result = runner.invoke(app, ["logout", "datadog"])
+
     assert result.exit_code == 0, result.output
     assert "token" in result.output.lower()
+    fake_provider.token_storage_adapter.clear.assert_awaited_once()
+
+
+def test_logout_clears_tokens_via_provider(
+    mock_client_factory: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAST_GATEWAY_OAUTH_DIR", str(tmp_path / "tokens"))
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET" and req.url.path.endswith("/datadog"):
+            return httpx.Response(200, json=_OAUTH_SERVER_RECORD)
+        if req.method == "GET" and req.url.path.endswith("/servers"):
+            return httpx.Response(200, json=[_OAUTH_SERVER_RECORD])
+        return httpx.Response(404)
+
+    mock_client_factory.return_value = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="http://127.0.0.1:8000"
+    )
+
+    cleared: list[bool] = []
+
+    fake_provider = MagicMock()
+    fake_provider.token_storage_adapter = MagicMock()
+
+    async def _fake_get_tokens() -> dict[str, str]:
+        return {"access_token": "tok"}
+
+    async def _fake_clear() -> None:
+        cleared.append(True)
+
+    fake_provider.token_storage_adapter.get_tokens = _fake_get_tokens
+    fake_provider.token_storage_adapter.clear = _fake_clear
+
+    with patch("fast_gateway.cli.build_oauth", return_value=fake_provider):
+        result = runner.invoke(app, ["logout", "datadog"])
+
+    assert result.exit_code == 0, result.output
+    assert cleared == [True]
+    assert "cleared" in result.output.lower()
+
+
+def test_logout_with_config_applies_token_dir(
+    mock_client_factory: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("FAST_GATEWAY_OAUTH_DIR", raising=False)
+
+    custom_dir = tmp_path / "custom_tokens"
+    config_file = tmp_path / "gateway.json"
+    config_file.write_text(json.dumps({"oauth_token_dir": str(custom_dir)}), encoding="utf-8")
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET" and req.url.path.endswith("/datadog"):
+            return httpx.Response(200, json=_OAUTH_SERVER_RECORD)
+        if req.method == "GET" and req.url.path.endswith("/servers"):
+            return httpx.Response(200, json=[_OAUTH_SERVER_RECORD])
+        return httpx.Response(404)
+
+    mock_client_factory.return_value = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="http://127.0.0.1:8000"
+    )
+
+    fake_provider = MagicMock()
+    fake_provider.token_storage_adapter = MagicMock()
+    fake_provider.token_storage_adapter.get_tokens = AsyncMock(return_value={"tok": "val"})
+    fake_provider.token_storage_adapter.clear = AsyncMock()
+
+    with patch("fast_gateway.cli.build_oauth", return_value=fake_provider):
+        result = runner.invoke(app, ["logout", "datadog", "--config", str(config_file)])
+
+    assert result.exit_code == 0, result.output
+    assert os.environ.get("FAST_GATEWAY_OAUTH_DIR") == str(custom_dir)
+
+
+def test_login_with_config_applies_token_dir(
+    mock_client_factory: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("FAST_GATEWAY_OAUTH_DIR", raising=False)
+
+    custom_dir = tmp_path / "custom_login_tokens"
+    config_file = tmp_path / "gateway.json"
+    config_file.write_text(json.dumps({"oauth_token_dir": str(custom_dir)}), encoding="utf-8")
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET" and req.url.path.endswith("/datadog"):
+            return httpx.Response(200, json=_OAUTH_SERVER_RECORD)
+        return httpx.Response(404)
+
+    mock_client_factory.return_value = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="http://127.0.0.1:8000"
+    )
+
+    with patch("fast_gateway.cli.run_oauth_login"):
+        result = runner.invoke(app, ["login", "datadog", "--config", str(config_file)])
+
+    assert result.exit_code == 0, result.output
+    assert os.environ.get("FAST_GATEWAY_OAUTH_DIR") == str(custom_dir)
+
+
+# ---------------------------------------------------------------------------
+# reload degraded warnings
+# ---------------------------------------------------------------------------
+
+
+def test_reload_command_warns_on_degraded(mock_client_factory: MagicMock) -> None:
+    mock_client_factory.return_value = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda r: httpx.Response(200, json={"status": "reloaded", "degraded": ["broken-srv"]})
+        ),
+        base_url="http://127.0.0.1:8000",
+    )
+    result = runner.invoke(app, ["reload"])
+    assert result.exit_code == 0, result.output
+    assert "reloaded" in result.output
+    assert "broken-srv" in result.output
+    assert "WARNING" in result.output
+
+
+def test_do_reload_warns_on_degraded(mock_client_factory: MagicMock) -> None:
+    requests_seen: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        requests_seen.append(req)
+        if req.method == "GET" and req.url.path.endswith("/weather"):
+            return httpx.Response(200, json=_SERVER_RECORD)
+        if req.method == "PATCH":
+            return httpx.Response(200, json={**_SERVER_RECORD, "enabled": True})
+        if req.method == "POST" and "/reload" in req.url.path:
+            return httpx.Response(200, json={"status": "reloaded", "degraded": ["weather"]})
+        return httpx.Response(404)
+
+    mock_client_factory.return_value = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="http://127.0.0.1:8000"
+    )
+
+    result = runner.invoke(app, ["enable", "weather"])
+    assert result.exit_code == 0, result.output
+    assert "WARNING" in result.output
+    assert "weather" in result.output
+
+
+# ---------------------------------------------------------------------------
+# logout: nothing cached path
+# ---------------------------------------------------------------------------
+
+
+def test_logout_nothing_cached_prints_nothing_to_clear(
+    mock_client_factory: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAST_GATEWAY_OAUTH_DIR", str(tmp_path / "tokens"))
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET" and req.url.path.endswith("/datadog"):
+            return httpx.Response(200, json=_OAUTH_SERVER_RECORD)
+        if req.method == "GET" and req.url.path.endswith("/servers"):
+            return httpx.Response(200, json=[_OAUTH_SERVER_RECORD])
+        return httpx.Response(404)
+
+    mock_client_factory.return_value = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="http://127.0.0.1:8000"
+    )
+
+    fake_provider = MagicMock()
+    fake_provider.token_storage_adapter = MagicMock()
+    fake_provider.token_storage_adapter.get_tokens = AsyncMock(return_value=None)
+    fake_provider.token_storage_adapter.clear = AsyncMock()
+
+    with patch("fast_gateway.cli.build_oauth", return_value=fake_provider):
+        result = runner.invoke(app, ["logout", "datadog"])
+
+    assert result.exit_code == 0, result.output
+    assert "nothing to clear" in result.output.lower()
+    assert "cleared" not in result.output.lower()
+    fake_provider.token_storage_adapter.clear.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# login/logout: non-OAuth server guard
+# ---------------------------------------------------------------------------
+
+
+def test_login_non_oauth_server_exits_1(mock_client_factory: MagicMock) -> None:
+    run_oauth_called: list[bool] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET" and req.url.path.endswith("/weather"):
+            return httpx.Response(200, json=_SERVER_RECORD)
+        return httpx.Response(404)
+
+    mock_client_factory.return_value = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="http://127.0.0.1:8000"
+    )
+
+    with patch(
+        "fast_gateway.cli.run_oauth_login",
+        side_effect=lambda _: run_oauth_called.append(True),
+    ):
+        result = runner.invoke(app, ["login", "weather"])
+
+    assert result.exit_code != 0
+    assert "not configured for OAuth" in result.output or "not configured for OAuth" in (
+        result.output + getattr(result, "stderr", "")
+    )
+    assert run_oauth_called == []
+
+
+def test_logout_non_oauth_server_exits_1(
+    mock_client_factory: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAST_GATEWAY_OAUTH_DIR", str(tmp_path / "tokens"))
+    build_oauth_called: list[bool] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        if req.method == "GET" and req.url.path.endswith("/weather"):
+            return httpx.Response(200, json=_SERVER_RECORD)
+        if req.method == "GET" and req.url.path.endswith("/servers"):
+            return httpx.Response(200, json=[_SERVER_RECORD])
+        return httpx.Response(404)
+
+    mock_client_factory.return_value = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="http://127.0.0.1:8000"
+    )
+
+    with patch(
+        "fast_gateway.cli.build_oauth",
+        side_effect=lambda *a, **kw: build_oauth_called.append(True),
+    ):
+        result = runner.invoke(app, ["logout", "weather"])
+
+    assert result.exit_code != 0
+    assert "not configured for OAuth" in result.output or "not configured for OAuth" in (
+        result.output + getattr(result, "stderr", "")
+    )
+    assert build_oauth_called == []
