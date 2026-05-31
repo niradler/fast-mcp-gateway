@@ -14,7 +14,11 @@ from pathlib import Path
 from typing import Any
 
 from fastmcp.client.auth import OAuth
-from key_value.aio.stores.filetree import FileTreeStore
+from key_value.aio.stores.filetree import (
+    FileTreeStore,
+    FileTreeV1CollectionSanitizationStrategy,
+    FileTreeV1KeySanitizationStrategy,
+)
 
 from fast_gateway.hooks import ConnectContext, ConnectSettings, Hooks
 from fast_gateway.models import ServerAuth, ServerRecord
@@ -80,7 +84,14 @@ def build_oauth(server: ServerRecord, *, interactive: bool = True) -> OAuth:
     Both share the same ``FileTreeStore`` token cache.
     """
     scopes: list[str] | None = server.oauth_scopes if server.oauth_scopes else None
-    token_storage: FileTreeStore = FileTreeStore(data_directory=default_oauth_token_dir())
+    data_dir = default_oauth_token_dir()
+    token_storage: FileTreeStore = FileTreeStore(
+        data_directory=data_dir,
+        key_sanitization_strategy=FileTreeV1KeySanitizationStrategy(directory=data_dir),
+        collection_sanitization_strategy=FileTreeV1CollectionSanitizationStrategy(
+            directory=data_dir
+        ),
+    )
     if interactive:
         return OAuth(
             mcp_url=server.url,
