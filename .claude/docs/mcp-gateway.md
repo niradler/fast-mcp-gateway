@@ -307,43 +307,34 @@ main thread owns those central edits. Each subagent must pass the full gate
 
 ## Plugin folders + programmatic access (June 2026 session)
 
-Branch `feat/plugin-folders-and-programmatic-api` (PR opened from this session).
+Branch `feat/plugin-folders-and-programmatic-api` (PR #5).
 
-- **Folder-per-plugin restructure:** `plugins/oauth.py` → `plugins/oauth/{__init__,plugin}.py`;
-  `src/fast_gateway/hil/` → `plugins/hil/`. Convention recorded in CLAUDE.md: every plugin
-  is `plugins/<name>/` with `__init__.py` re-exports + `plugin.py`. Five bundled plugins:
-  policy, tools_api, hil, oauth, agentos.
+- **Folder-per-plugin layout:** every plugin is `plugins/<name>/` with `__init__.py`
+  re-exports + `plugin.py` (convention in CLAUDE.md). Four bundled plugins: tools_api,
+  hil, oauth, agentos. A plugin must carry real logic; plain deny/confirm/audit stays
+  as the reference hooks (`build_app` composes them directly).
 - **Programmatic in-process access (no HTTP loopback):** `Gateway.client()` returns
-  `fastmcp.Client(self.mcp)`; `Gateway.call_tool(name, args, group=, timeout=)` and
-  `Gateway.list_tools(group=)` are one-shot conveniences. Group scoping works by setting
-  `access.current_group` BEFORE entering the client context (the in-process server task
-  copies the caller's context at `__aenter__`). Tests: `test_gateway_client.py`.
-- **`PolicyPlugin` was built, then REMOVED at Nir's direction** (review verdict: empty
-  boilerplate wrapping the reference hooks with no logic of its own). `factory.build_app`
-  assembles `deny_hook`/`confirm_hook`/`audit_hook` directly. Do not re-introduce a
-  wrapper plugin unless it carries real logic users would customize.
+  `fastmcp.Client(self.mcp)`; `Gateway.call_tool(name, args, group=, timeout_seconds=)`
+  and `Gateway.list_tools(group=)` are one-shot conveniences. Group scoping works by
+  setting `access.current_group` BEFORE entering the client context (the in-process
+  server task copies the caller's context at `__aenter__`). Tests: `test_gateway_client.py`.
 - **`ToolsApiPlugin`** (`plugins/tools_api/`, name="tools"): REST bridge under
   `/admin/tools` — GET list (`?group=`), GET `/{name}` schema (404 hides denied), POST
   `/{name}/call` (errors in-band via `is_error`, mirroring MCP wire semantics; uses
-  `raise_on_error=False`). Wired unconditionally in `build_app`; admin token guards it.
+  `raise_on_error=False`). Wired in `build_app`; the admin bearer guard covers it
+  (test-proven). Live validator: `scripts/validate_tools_api.py`.
+- **agentos additions:** `enable_mcp_security_scan` (tool-poisoning scan on
+  `pre_list_tools`, drops flagged tools when `fail_closed`) and `enable_rate_limiting`
+  (per-group sliding window on `pre_tool_call`). Audit verdict: the rest of the toolkit
+  needs an agent runtime and does not fit a stateless proxy. Live-validated via
+  `examples/poisoned_upstream.py` + env toggles on `examples/agentos_gateway.py`.
+- aiohttp pinned past CVE-2026-34993/47265 (3.14.1); `pip-audit` clean.
 - **Test gotcha:** holding the gateway lifespan open across an async pytest fixture yield
   crashes at teardown (anyio cancel scope exits in a different task). Enter the lifespan
   INSIDE each test via an `asynccontextmanager` helper instead (see `test_tools_api_plugin.py`).
 - Governed-policy-without-upstreams test trick: register servers `enabled=False` (reload
   skips mounting/introspection but `policy.rebuild` sees ALL servers), then seed the
   catalog with `store.replace_catalog` AFTER reload.
-
-### Cleanup pass (same session, after Nir's review)
-
-- PolicyPlugin removed (see note above). HIL kept: real logic (PendingRegistry
-  futures/timeout fail-safe/browser UI), not hook boilerplate.
-- agentos plugin extended with the only two gateway-relevant toolkit gaps (full audit
-  said the rest is agent-framework-only): `enable_mcp_security_scan` (tool-poisoning
-  scan on `pre_list_tools`, drops flagged tools when `fail_closed`) and
-  `enable_rate_limiting` (per-group sliding window on `pre_tool_call`).
-- New committed live validator `scripts/validate_tools_api.py` (15/15).
-- Security/perf sweep: `.claude/docs/production-readiness.md`. aiohttp CVE fix
-  (3.13.5 -> 3.14.1), admin-token guard over /admin/tools proven by test.
 
 ## Earlier Next (Milestone 5)
 
