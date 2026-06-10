@@ -26,9 +26,11 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 REPO = Path(__file__).resolve().parents[1]
-ECHO_PORT, GW_PORT = 9100, 8002
+ECHO_PORT, POISONED_PORT, GW_PORT = 9100, 9103, 8002
 ECHO_URL = f"http://127.0.0.1:{ECHO_PORT}/mcp/"
+POISONED_URL = f"http://127.0.0.1:{POISONED_PORT}/mcp/"
 GW_MCP = f"http://127.0.0.1:{GW_PORT}/mcp/"
+RATE_LIMIT_MAX = 12
 
 
 def _free(port: int) -> bool:
@@ -82,6 +84,27 @@ async def drive() -> int:
             msg = str(exc).splitlines()[0][:80]
         check("policy denies disallowed tool (echo_purge_cache)", denied, msg)
 
+        print("\n## MCP security scan (tool poisoning)")
+        check("benign tool from scanned upstream survives", "ext_lookup" in names)
+        check("poisoned tool dropped from catalog", "ext_backdoor" not in names)
+
+        print("\n## Sliding-window rate limiting")
+        successes, limited, limit_msg = 0, False, "never rate limited"
+        for _ in range(RATE_LIMIT_MAX + 3):
+            try:
+                await c.call_tool("echo_echo", {"message": "rl"})
+                successes += 1
+            except Exception as exc:
+                limited = True
+                limit_msg = str(exc).splitlines()[0][:80]
+                break
+        check("calls under budget succeed", successes > 0, f"{successes} calls ok")
+        check(
+            "over-budget call denied with rate-limit reason",
+            limited and "ate limit" in limit_msg,
+            limit_msg,
+        )
+
     failed = [n for n, ok, _ in rows if not ok]
     print("\n" + "=" * 60)
     print(f"AGENT-OS SUMMARY: {len(rows) - len(failed)}/{len(rows)} passed")
@@ -97,8 +120,8 @@ def main() -> int:
     except ImportError:
         print("SKIP: agent_os not installed (run `uv sync --extra agt`)")
         return 0
-    if not (_free(ECHO_PORT) and _free(GW_PORT)):
-        print(f"!! port {ECHO_PORT} or {GW_PORT} in use")
+    if not (_free(ECHO_PORT) and _free(POISONED_PORT) and _free(GW_PORT)):
+        print(f"!! port {ECHO_PORT}, {POISONED_PORT} or {GW_PORT} in use")
         return 2
     db = REPO / "agentos_validate.db"
     for suffix in ("", "-wal", "-shm"):
@@ -107,25 +130,37 @@ def main() -> int:
             p.unlink()
     scripts = Path(tempfile.gettempdir())
     echo = _spawn("examples.echo_upstream:app", ECHO_PORT, {}, scripts / "echo_upstream.log")
+    poisoned = _spawn(
+        "examples.poisoned_upstream:app", POISONED_PORT, {}, scripts / "poisoned_upstream.log"
+    )
     gw = _spawn(
         "examples.agentos_gateway:app",
         GW_PORT,
-        {"GATEWAY_DB": str(db), "ECHO_URL": ECHO_URL},
+        {
+            "GATEWAY_DB": str(db),
+            "ECHO_URL": ECHO_URL,
+            "POISONED_URL": POISONED_URL,
+            "AGT_SCAN": "1",
+            "AGT_RATE_LIMIT_MAX": str(RATE_LIMIT_MAX),
+        },
         scripts / "agentos_gateway.log",
     )
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        print("Waiting for echo + agentos gateway...")
+        print("Waiting for echo + poisoned + agentos gateway...")
         if not loop.run_until_complete(_wait(ECHO_URL, 30)):
             print((scripts / "echo_upstream.log").read_text(errors="replace")[-1500:])
+            return 2
+        if not loop.run_until_complete(_wait(POISONED_URL, 30)):
+            print((scripts / "poisoned_upstream.log").read_text(errors="replace")[-1500:])
             return 2
         if not loop.run_until_complete(_wait(GW_MCP, 60)):
             print((scripts / "agentos_gateway.log").read_text(errors="replace")[-2500:])
             return 2
         return loop.run_until_complete(drive())
     finally:
-        for p in (gw, echo):
+        for p in (gw, poisoned, echo):
             p.terminate()
             try:
                 p.wait(timeout=10)
