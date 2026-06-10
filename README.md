@@ -225,11 +225,51 @@ agent lists tools (on (re)connect). See `fast-gateway --help` for `remove`, `ena
 > the gateway, bridge it to HTTP first — `fastmcp run your_server.py --transport http`
 > or a tool like `mcp-proxy` — then `fast-gateway add` the resulting URL.
 
-### OAuth-protected upstreams
+### Token / API-key upstreams (secret references)
 
-Many hosted MCP servers (Datadog, etc.) require an OAuth login. Register the server with
-`--oauth`, then run the browser login **once** — tokens are cached on disk and refreshed
-automatically thereafter, so the gateway connects unattended after that.
+Most upstreams just want a static bearer token or `X-API-Key` header. Don't put the
+secret in the registry — header values support `${env:VAR}` and `${file:path}`
+references, resolved at connect time. The registry (and the admin read API) only ever
+see the reference; rotation needs no registry change:
+
+```bash
+fast-gateway add weather https://api.example.com/mcp \
+  --header 'Authorization=Bearer ${env:WEATHER_TOKEN}'
+fast-gateway add billing https://billing.example.com/mcp \
+  --header 'X-API-Key=${file:/run/secrets/billing-key}'
+```
+
+An unresolvable reference fails loudly at connect time (visible via
+`POST /admin/servers/{id}/test`) instead of sending the literal placeholder upstream.
+
+### Headless OAuth: client credentials (machine-to-machine)
+
+For server-to-server OAuth — no browser, no human — register the upstream with the
+`client_credentials` grant. The gateway fetches tokens from the token endpoint on
+demand, caches them in memory, and refreshes before expiry (and once on a 401):
+
+```bash
+fast-gateway add machine https://api.example.com/mcp \
+  --oauth-token-url https://idp.example.com/oauth/token \
+  --oauth-client-id my-client \
+  --oauth-client-secret '${env:MACHINE_CLIENT_SECRET}'
+```
+
+The client secret **must** be a `${env:}`/`${file:}` reference — raw secrets are
+rejected at registration so they never land in the registry. Works in both modes; in
+Mode A either register `OAuthPlugin()` or add just the hook:
+
+```python
+from fast_gateway.plugins.oauth import client_credentials_hook
+
+hooks = Hooks(pre_mcp_connect=[client_credentials_hook()])
+```
+
+### OAuth-protected upstreams (browser login)
+
+Many hosted MCP servers (Datadog, etc.) require an interactive OAuth login. Register
+the server with `--oauth`, then run the browser login **once** — tokens are cached on
+disk and refreshed automatically thereafter, so the gateway connects unattended after that.
 
 ```bash
 fast-gateway add datadog https://<your-dd-mcp-endpoint> --oauth --scope read
@@ -256,12 +296,10 @@ you can spot a missing login before any agent traffic hits it.
 > [roadmap](#roadmap).
 
 > [!NOTE]
-> OAuth is a **Mode-B-only feature** (`OAuthPlugin`), wired automatically by `build_app`
-> (the CLI / `fast-gateway serve` path). It is **not** registered in a Mode-A embedded
-> mount (`create_gateway` called directly). OAuth requires a human at a terminal to complete
-> the browser authorization-code flow, so it is not appropriate for a headless library
-> embedding. In Mode A, inject auth tokens via a `pre_mcp_connect` hook in `ConnectSettings`
-> instead — see the [Quickstart](#quickstart) example.
+> The **browser** OAuth flow is Mode-B-only (`OAuthPlugin`, wired automatically by
+> `build_app`): it needs a human at a terminal, so it is not appropriate for a headless
+> library embedding. In Mode A use secret-ref headers, the `client_credentials` grant,
+> or inject auth via a `pre_mcp_connect` hook — see the [Quickstart](#quickstart) example.
 
 ### Human-in-the-loop, in the browser
 
@@ -283,6 +321,28 @@ When an agent calls a `confirm`-matched tool, the gateway **opens a browser appr
 showing the tool name, its arguments, and the reason, and **blocks the call** until you
 click **Approve** or **Deny** (a timeout denies — fail-safe). The approval page lives at
 `/admin/hil`; in a headless/Docker run the approval URL is logged for you to open manually.
+
+Approvals are also fully programmable — a JSON API lives alongside the HTML pages, so a
+Slack bot, custom UI, or CI job can decide instead of a browser tab:
+
+```bash
+curl  $GW/admin/hil/pending                        # list pending approvals (JSON)
+curl  $GW/admin/hil/pending/{id}                   # one approval: tool, args, reason
+curl -X POST $GW/admin/hil/pending/{id}/approve    # or .../deny
+```
+
+And how operators get *told* about a pending approval is pluggable: pass any async
+callable as the notifier (browser-open is just the default). A failing notifier never
+blocks the decision — the approval stays pending for the API/UI.
+
+```python
+from fast_gateway.plugins.hil import HumanApprovalPlugin, PendingApproval
+
+async def notify_slack(approval: PendingApproval, url: str) -> None:
+    await slack.post(f"Approve `{approval.tool_name}`? {url}")
+
+plugins = [HumanApprovalPlugin(notifier=notify_slack)]
+```
 
 ### Docker
 
@@ -392,8 +452,8 @@ templates for your own:
 | Plugin | Import | What it adds |
 | --- | --- | --- |
 | **tools** | `ToolsApiPlugin()` | REST routes to list / describe / invoke the governed tools (`/admin/tools`) |
-| **hil** | `HumanApprovalPlugin(config)` | browser approval page for calls flagged `REQUIRE_CONFIRMATION` |
-| **oauth** | `OAuthPlugin()` | attaches the cached upstream OAuth credentials at connect time (CLI/daemon mode) |
+| **hil** | `HumanApprovalPlugin(config, notifier=...)` | approval gate for calls flagged `REQUIRE_CONFIRMATION`: browser page + JSON decision API, pluggable notifier |
+| **oauth** | `OAuthPlugin()` | upstream OAuth at connect time: browser flow (CLI/daemon) + headless `client_credentials` |
 | **agentos** | `AgtAgentOsPlugin(settings)` | Microsoft agent-governance-toolkit policy engine (experimental, `agt` extra) |
 
 Plain deny / confirm / audit governance needs no plugin — pass the reference hooks
@@ -495,6 +555,7 @@ governed surface over REST — see the Admin API table below.
 | `GET` / `PATCH` / `DELETE` | `/admin/servers/{id}` | read / update / remove |
 | `GET` | `/admin/servers/{id}/tools` | live tool introspection |
 | `POST` | `/admin/servers/{id}/test` | connect + handshake check |
+| `POST` | `/admin/servers/{id}/refresh` | remount + re-introspect **one** server (no fan-out) |
 | `GET` / `POST` | `/admin/groups` | list / create groups |
 | `GET` / `PATCH` / `DELETE` | `/admin/groups/{id}` | read / update / remove |
 | `PUT` | `/admin/groups/{id}/servers` | set membership |
@@ -502,9 +563,16 @@ governed surface over REST — see the Admin API table below.
 | `GET` | `/admin/tools` | list governed tools (`?group=` to scope) — `ToolsApiPlugin` |
 | `GET` | `/admin/tools/{name}` | full tool schema — `ToolsApiPlugin` |
 | `POST` | `/admin/tools/{name}/call` | invoke a tool through the governance chain — `ToolsApiPlugin` |
+| `GET` | `/admin/hil/pending` (+ `/{id}`) | pending approvals as JSON — `HumanApprovalPlugin` |
+| `POST` | `/admin/hil/pending/{id}/approve` / `.../deny` | decide programmatically — `HumanApprovalPlugin` |
 
 CRUD writes to the `Store`; `POST /admin/reload` (or `await gateway.reload()`) rebuilds
-the proxy mounts. There is no live hot-swap in v1 — simple and lean.
+the proxy mounts and re-introspects every upstream, while `/admin/servers/{id}/refresh`
+touches just one. Startup does not block on upstreams by default in the daemon
+(`startup_catalog: "background"` in the config): mounts come up instantly, `tools/list`
+serves the last-known catalog, and a background task refreshes it. Set `"refresh"` to
+block startup until every upstream answered, or `"skip"` to defer entirely
+(`create_gateway(..., startup_catalog=...)` defaults to `"refresh"` in Mode A).
 
 > [!WARNING]
 > The `/admin` API is **unauthenticated by default** and mutates the registry —

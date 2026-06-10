@@ -231,12 +231,21 @@ def add(
     header: Annotated[list[str], typer.Option("--header")] = [],  # noqa: B006
     oauth: Annotated[bool, typer.Option("--oauth/--no-oauth")] = False,
     scope: Annotated[list[str], typer.Option("--scope")] = [],  # noqa: B006
+    oauth_token_url: Annotated[str | None, typer.Option("--oauth-token-url")] = None,
+    oauth_client_id: Annotated[str | None, typer.Option("--oauth-client-id")] = None,
+    oauth_client_secret: Annotated[str | None, typer.Option("--oauth-client-secret")] = None,
     no_reload: Annotated[bool, typer.Option("--no-reload")] = False,
     gateway_url: Annotated[str | None, typer.Option("--gateway-url")] = None,
     admin_token: Annotated[str | None, typer.Option("--admin-token")] = None,
     admin_prefix: Annotated[str | None, typer.Option("--admin-prefix")] = None,
 ) -> None:
-    """Register a new upstream server with the gateway."""
+    """Register a new upstream server with the gateway.
+
+    Header values may embed ``${env:VAR}`` / ``${file:path}`` secret references —
+    only the reference is stored. The three ``--oauth-*`` options select the
+    headless client_credentials grant (the secret must itself be a reference);
+    ``--oauth`` alone selects the interactive browser flow.
+    """
     resolved_url = _resolve_url(gateway_url)
     token = _resolve_token(admin_token)
     prefix = _resolve_prefix(admin_prefix)
@@ -255,17 +264,45 @@ def add(
         typer.echo(f"Error: invalid transport {transport!r}; choose http or sse.", err=True)
         raise typer.Exit(1) from exc
 
-    auth_scheme = ServerAuth.OAUTH if oauth else ServerAuth.NONE
-    payload = ServerCreate(
-        name=name,
-        url=url,
-        transport=transport_enum,
-        allow=list(allow),
-        deny=list(deny),
-        static_headers=static_headers,
-        auth=auth_scheme,
-        oauth_scopes=list(scope),
-    )
+    client_credentials = any([oauth_token_url, oauth_client_id, oauth_client_secret])
+    if client_credentials and oauth:
+        typer.echo(
+            "Error: --oauth (browser flow) and --oauth-token-url/--oauth-client-id/"
+            "--oauth-client-secret (client_credentials) are mutually exclusive.",
+            err=True,
+        )
+        raise typer.Exit(1)
+    if client_credentials and not all([oauth_token_url, oauth_client_id, oauth_client_secret]):
+        typer.echo(
+            "Error: client_credentials needs all of --oauth-token-url, --oauth-client-id "
+            "and --oauth-client-secret (a ${env:VAR} or ${file:path} reference).",
+            err=True,
+        )
+        raise typer.Exit(1)
+
+    auth_scheme = ServerAuth.NONE
+    if oauth:
+        auth_scheme = ServerAuth.OAUTH
+    elif client_credentials:
+        auth_scheme = ServerAuth.OAUTH_CLIENT_CREDENTIALS
+    try:
+        payload = ServerCreate(
+            name=name,
+            url=url,
+            transport=transport_enum,
+            allow=list(allow),
+            deny=list(deny),
+            static_headers=static_headers,
+            auth=auth_scheme,
+            oauth_scopes=list(scope),
+            oauth_token_url=oauth_token_url,
+            oauth_client_id=oauth_client_id,
+            oauth_client_secret=oauth_client_secret,
+        )
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        typer.echo(f"Error: {first.get('msg', exc)}", err=True)
+        raise typer.Exit(1) from exc
 
     client = make_client(resolved_url, token)
     try:

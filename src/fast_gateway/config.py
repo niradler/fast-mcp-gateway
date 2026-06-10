@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import cast
+from typing import Literal, cast
 
 from pydantic import BaseModel, Field
 
@@ -68,6 +68,16 @@ class GatewayConfig(BaseModel):
     oauth_token_dir: str | None = Field(
         default=None,
         description="Persistent OAuth token cache dir; defaults to ~/.fast-gateway/oauth.",
+    )
+    startup_catalog: Literal["refresh", "background", "skip"] = Field(
+        default="background",
+        description=(
+            "Upstream introspection at startup. 'background' (default) starts serving "
+            "immediately — mounts are live, tools/list uses the last-known catalog — and "
+            "refreshes in a background task, so boot time no longer scales with slow or "
+            "dead upstreams. 'refresh' blocks startup until every upstream answered "
+            "(the pre-0.0.4 behavior); 'skip' defers to an explicit /reload."
+        ),
     )
     policy: LocalPolicy = Field(default_factory=LocalPolicy)
     hil: HilConfig = Field(default_factory=HilConfig)
@@ -141,6 +151,7 @@ _DEFAULT_CONFIG_JSON: dict[str, object] = {
     "admin_token": None,
     "policy_file": None,
     "oauth_token_dir": None,
+    "startup_catalog": "background",
     "policy": {
         "deny": [],
         "confirm": ["*_delete_*", "*_write_*", "*_purge_*", "*_remove_*"],

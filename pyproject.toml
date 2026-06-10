@@ -25,9 +25,8 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "fastapi>=0.136.3",
     "fastmcp>=3.3.1",
-    # Persistent OAuth token store (FileTreeStore) for upstream OAuth; ships with
-    # fastmcp's client auth, declared explicitly because connect.py imports it directly.
     "py-key-value-aio>=0.4.5",
+    "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]

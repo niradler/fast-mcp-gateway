@@ -60,7 +60,8 @@ src/fast_gateway/
   app.py            # create_gateway() -> Gateway; in-process client/call_tool/list_tools
   hooks.py          # Hooks container + HookMiddleware (on_call_tool / on_list_tools)
   connect.py        # build_client_factory() — runs pre_mcp_connect, builds ProxyClient
-  builder.py        # GatewayBuilder: registry -> create_proxy + namespace mount; reload()
+  secret_refs.py    # ${env:}/${file:} secret references, resolved at connect time
+  builder.py        # GatewayBuilder: rebuild_mounts / refresh_catalog / refresh_server / reload
   search.py         # register_search_tools() — search_tools / describe_tool meta-tools
   catalog.py        # collect_catalog() — upstream introspection -> persisted snapshot
   access.py         # AccessPolicy (allow/deny globs) + current_group ContextVar
@@ -76,8 +77,8 @@ src/fast_gateway/
   api/groups.py     # admin CRUD router (groups)
   plugins/          # folder-per-plugin; __init__.py holds the Plugin contract
     tools_api/      # ToolsApiPlugin — REST list/describe/invoke over the tools
-    hil/            # HumanApprovalPlugin — browser approval page
-    oauth/          # OAuthPlugin — upstream OAuth (Mode B only)
+    hil/            # HumanApprovalPlugin — approval gate (browser + JSON API, pluggable notifier)
+    oauth/          # OAuthPlugin — browser OAuth (Mode B) + headless client_credentials
     agentos/        # AgtAgentOsPlugin — agent-governance-toolkit (experimental)
 examples/basic_app.py
 tests/

@@ -47,7 +47,13 @@ def build_app(config: GatewayConfig) -> FastAPI:
     hil_plugins: list[Plugin] = [HumanApprovalPlugin(config.hil)] if config.hil.enabled else []
     plugins: list[Plugin] = [OAuthPlugin(), ToolsApiPlugin(), *hil_plugins]
 
-    gateway = create_gateway(store, hooks, plugins=plugins, name=config.name)
+    gateway = create_gateway(
+        store,
+        hooks,
+        plugins=plugins,
+        name=config.name,
+        startup_catalog=config.startup_catalog,
+    )
 
     app = FastAPI(title=config.name, lifespan=gateway.lifespan)
 

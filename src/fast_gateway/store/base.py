@@ -66,6 +66,13 @@ class Store(Protocol):
         Backends that support full-text search rebuild their index here."""
         ...
 
+    async def replace_server_catalog(self, server_id: str, tools: Sequence[CatalogTool]) -> None:
+        """Atomically replace only ``server_id``'s catalog rows with ``tools``.
+
+        Backs the per-server refresh path — other servers' rows are untouched, so
+        re-introspecting one upstream never fans out to the rest."""
+        ...
+
     async def list_catalog(self) -> list[CatalogTool]:
         """Return the full persisted catalog (namespaced, unfiltered)."""
         ...

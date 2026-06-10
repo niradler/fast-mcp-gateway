@@ -336,6 +336,45 @@ Branch `feat/plugin-folders-and-programmatic-api` (PR #5).
   skips mounting/introspection but `policy.rebuild` sees ALL servers), then seed the
   catalog with `store.replace_catalog` AFTER reload.
 
+## Upstream auth expansion + HIL API + startup perf (June 2026 session)
+
+Same branch. Decisions made with Nir, implemented and live-validated
+(`scripts/validate_upstream_auth.py`, 18/18).
+
+- **Secret refs (core, not a plugin):** `secret_refs.py` resolves `${env:VAR}` /
+  `${file:path}` inside `static_headers` values at connect time (`connect.py`). Chosen
+  over `ServerAuth.BEARER/HEADER` enum fields — reuses the existing header mechanism,
+  covers any scheme/multiple headers, zero new model fields. Registry/admin API only
+  ever hold the reference.
+- **OAuth client_credentials (in `plugins/oauth/`, importable standalone):**
+  `ServerAuth.OAUTH_CLIENT_CREDENTIALS` + `oauth_token_url`/`oauth_client_id`/
+  `oauth_client_secret` (validator REJECTS raw secrets — must be a secret ref).
+  `ClientCredentialsAuth` (httpx.Auth, client_secret_post, in-memory token cache,
+  expiry skew 60s, one forced refresh on 401). `client_credentials_hook()` keeps one
+  provider per server-config so reconnects don't hammer the token endpoint; Mode A
+  uses the hook directly, `OAuthPlugin` covers Mode B. httpx now an explicit dep.
+- **Store:** 3 new nullable sqlite columns (auto-migrated); `update_server` now
+  re-validates the merged record (was `model_copy`, which skips validators) so a patch
+  can never persist a row that fails to load later.
+- **HIL:** `HumanApprovalPlugin(notifier=...)` — async `(approval, url)` callable,
+  browser-open is the default; notifier failure logs + keeps waiting. JSON API
+  alongside HTML: `GET /admin/hil/pending`, `GET /admin/hil/pending/{id}`,
+  `POST .../approve|deny` (declared before the HTML `/{approval_id}` catch-all —
+  route order matters).
+- **Startup perf (Nir's ask):** root cause = lifespan blocking on `collect_catalog`
+  fan-out (one dead upstream stalls boot up to its timeout). Builder split into
+  `rebuild_mounts` (pure in-memory; mounts are lazy) + `refresh_catalog` +
+  `refresh_server(id)`. `create_gateway(startup_catalog="refresh"|"background"|"skip")`
+  — library default `refresh` (back-compat), daemon config default **background**
+  (serves instantly with last-known catalog; `Gateway.startup_catalog_task` exposes the
+  in-flight refresh for tests/await). New `POST /admin/servers/{id}/refresh`
+  re-introspects one server; `store.replace_server_catalog` touches only its rows.
+- CLI: `add --oauth-token-url/--oauth-client-id/--oauth-client-secret` (mutually
+  exclusive with `--oauth`); header refs need no CLI change.
+- Also fixed: `/admin/servers/{id}/test` and `/tools` ran `await factory()` outside
+  their try block — a connect-settings error (unresolvable ref) was a 500, now
+  reported in-band / as 502.
+
 ## Earlier Next (Milestone 5)
 
 Reference hooks (audit, allow/deny, confirmation), docs, packaging dry-run — do NOT publish.

@@ -8,13 +8,15 @@ caller mounts onto their own FastAPI app.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
+import logging
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import mcp.types as mt
-from fastapi import APIRouter, FastAPI, params
+from fastapi import APIRouter, FastAPI, HTTPException, params, status
 from fastmcp import Client, FastMCP
 from fastmcp.client.client import CallToolResult
 from fastmcp.client.transports import FastMCPTransport
@@ -34,6 +36,10 @@ from fast_gateway.routing import GroupDispatch
 from fast_gateway.search import register_search_tools
 from fast_gateway.store.base import Store
 
+logger = logging.getLogger("fast_gateway.app")
+
+StartupCatalog = Literal["refresh", "background", "skip"]
+
 
 @dataclass
 class Gateway:
@@ -50,6 +56,12 @@ class Gateway:
     builder: GatewayBuilder
     _lifespan: Lifespan[Starlette]
     _transport_path: str
+    startup_catalog_task: asyncio.Task[list[str]] | None = None
+    """The in-flight startup catalog refresh when ``startup_catalog="background"``.
+
+    Await it to block until the first refresh completes (it returns the degraded
+    server names); ``None`` in the other modes or before the lifespan starts.
+    """
 
     @property
     def lifespan(self) -> Lifespan[Starlette]:
@@ -137,13 +149,14 @@ def create_gateway(
     plugins: Sequence[Plugin] = (),
     name: str = "MCP Gateway",
     transport_path: str = "/",
+    startup_catalog: StartupCatalog = "refresh",
 ) -> Gateway:
     """Build a :class:`Gateway` over ``store`` with the given ``hooks`` and ``plugins``.
 
     Wires hook middleware, meta-tools, and admin router; merges plugin contributions
-    (hooks, middleware, tools, router, ASGI mounts) in registration order; drives plugin
-    ``setup``/``teardown`` from the lifespan. ``transport_path`` is the MCP transport
-    sub-path inside the ASGI app, distinct from the ``mcp_path`` in :meth:`Gateway.install`.
+    in registration order; drives plugin ``setup``/``teardown`` from the lifespan.
+    ``startup_catalog``: ``"refresh"`` blocks startup on upstream introspection,
+    ``"background"`` serves immediately and refreshes in a task, ``"skip"`` defers.
     """
     base_hooks = hooks or Hooks()
     policy = AccessPolicy()
@@ -182,6 +195,17 @@ def create_gateway(
         for path, sub_app in c.mounts:
             mcp_app.mount(path, sub_app)
 
+    async def _background_refresh() -> list[str]:
+        degraded = await builder.refresh_catalog()
+        if degraded:
+            logger.warning(
+                "Startup catalog refresh: %d server(s) failed introspection and serve "
+                "last-known tools: %s",
+                len(degraded),
+                ", ".join(degraded),
+            )
+        return degraded
+
     @contextlib.asynccontextmanager
     async def lifespan(app: Starlette) -> AsyncIterator[None]:
         await store.initialize()
@@ -192,17 +216,27 @@ def create_gateway(
                 if setup is not None:
                     await setup()
                 started.append(plugin)
-            await builder.reload()
+            if startup_catalog == "refresh":
+                await builder.reload()
+            else:
+                await builder.rebuild_mounts()
+                if startup_catalog == "background":
+                    gateway.startup_catalog_task = asyncio.create_task(_background_refresh())
             async with mcp_app.lifespan(app):
                 yield
         finally:
+            task = gateway.startup_catalog_task
+            if task is not None and not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
             for plugin in reversed(started):
                 teardown = getattr(plugin, "teardown", None)
                 if teardown is not None:
                     await teardown()
             await store.close()
 
-    return Gateway(
+    gateway = Gateway(
         mcp=mcp,
         mcp_app=mcp_app,
         admin_router=admin_router,
@@ -210,6 +244,7 @@ def create_gateway(
         _lifespan=lifespan,
         _transport_path=transport_path,
     )
+    return gateway
 
 
 def _build_admin_router(store: Store, builder: GatewayBuilder, hooks: Hooks) -> APIRouter:
@@ -223,5 +258,20 @@ def _build_admin_router(store: Store, builder: GatewayBuilder, hooks: Hooks) -> 
         """Rebuild proxy mounts from the current registry."""
         degraded = await builder.reload()
         return {"status": "reloaded", "degraded": degraded}
+
+    @router.post("/servers/{server_id}/refresh", tags=["servers"])
+    async def refresh_server(server_id: str) -> dict[str, object]:
+        """Remount and re-introspect one server — no fan-out to other upstreams.
+
+        The on-demand alternative to ``/reload`` when a single server was added or
+        changed; ``degraded`` is true when introspection failed (last-known tools kept).
+        """
+        try:
+            ok = await builder.refresh_server(server_id)
+        except KeyError as exc:
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, f"No server with id {server_id!r}."
+            ) from exc
+        return {"status": "refreshed", "server_id": server_id, "degraded": not ok}
 
     return router

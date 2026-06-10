@@ -21,6 +21,14 @@ class PendingApproval(BaseModel):
     reason: str | None
 
 
+class ApprovalDecision(BaseModel):
+    """JSON response for a programmatic approve/deny decision."""
+
+    id: str
+    tool_name: str
+    approved: bool
+
+
 class PendingRegistry:
     """Tracks in-flight approval futures keyed by UUID hex id."""
 
@@ -68,6 +76,10 @@ class PendingRegistry:
             return False
         fut.set_result(approved)
         return True
+
+    def get(self, approval_id: str) -> PendingApproval | None:
+        """Return a pending approval by id, or None if unknown or already decided."""
+        return self._approvals.get(approval_id)
 
     def list_pending(self) -> list[PendingApproval]:
         """Return all approvals that are still awaiting a decision."""

@@ -43,13 +43,19 @@ CREATE TABLE IF NOT EXISTS servers (
     enabled         INTEGER NOT NULL DEFAULT 1,
     tags            TEXT NOT NULL DEFAULT '[]',
     auth            TEXT NOT NULL DEFAULT 'none',
-    oauth_scopes    TEXT NOT NULL DEFAULT '[]'
+    oauth_scopes    TEXT NOT NULL DEFAULT '[]',
+    oauth_token_url TEXT,
+    oauth_client_id TEXT,
+    oauth_client_secret TEXT
 )
 """
 
 _SERVER_MIGRATION_COLUMNS: list[tuple[str, str]] = [
     ("auth", "TEXT NOT NULL DEFAULT 'none'"),
     ("oauth_scopes", "TEXT NOT NULL DEFAULT '[]'"),
+    ("oauth_token_url", "TEXT"),
+    ("oauth_client_id", "TEXT"),
+    ("oauth_client_secret", "TEXT"),
 ]
 
 _CREATE_GROUPS = """
@@ -84,7 +90,8 @@ USING fts5(name, bare_name, description, tags)
 
 _COLUMNS = (
     "id, name, transport, url, static_headers, allow, deny, "
-    "timeout_seconds, enabled, tags, auth, oauth_scopes"
+    "timeout_seconds, enabled, tags, auth, oauth_scopes, "
+    "oauth_token_url, oauth_client_id, oauth_client_secret"
 )
 _GROUP_COLUMNS = "id, name, member_server_ids, allow, deny"
 _CATALOG_COLUMNS = (
@@ -122,6 +129,9 @@ def _row_to_server(row: aiosqlite.Row) -> ServerRecord:
         tags=json.loads(row["tags"]),
         auth=ServerAuth(row["auth"]),
         oauth_scopes=json.loads(row["oauth_scopes"]),
+        oauth_token_url=row["oauth_token_url"],
+        oauth_client_id=row["oauth_client_id"],
+        oauth_client_secret=row["oauth_client_secret"],
     )
 
 
@@ -139,6 +149,9 @@ def _server_values(record: ServerRecord) -> tuple[object, ...]:
         json.dumps(record.tags),
         record.auth.value,
         json.dumps(record.oauth_scopes),
+        record.oauth_token_url,
+        record.oauth_client_id,
+        record.oauth_client_secret,
     )
 
 
@@ -290,7 +303,8 @@ class SqliteStore:
         async with self._write_lock:
             try:
                 await self._conn.execute(
-                    f"INSERT INTO servers ({_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    f"INSERT INTO servers ({_COLUMNS}) "
+                    f"VALUES ({', '.join(['?'] * len(_server_values(record)))})",
                     _server_values(record),
                 )
                 await self._conn.commit()
@@ -299,16 +313,26 @@ class SqliteStore:
         return record
 
     async def update_server(self, server_id: str, patch: ServerPatch) -> ServerRecord:
+        """Apply *patch* and persist; the merged record is fully re-validated first.
+
+        Re-validation (rather than ``model_copy``) means a patch can never persist a
+        record that would fail to load later — e.g. switching ``auth`` to
+        ``oauth_client_credentials`` without its required fields raises ``ValueError``
+        and leaves the row untouched.
+        """
         async with self._write_lock:
             existing = await self.get_server(server_id)
             if existing is None:
                 raise KeyError(server_id)
-            updated = existing.model_copy(update=patch.model_dump(exclude_unset=True))
+            updated = ServerRecord.model_validate(
+                existing.model_dump() | patch.model_dump(exclude_unset=True)
+            )
             try:
                 await self._conn.execute(
                     "UPDATE servers SET name = ?, transport = ?, url = ?, static_headers = ?, "
                     "allow = ?, deny = ?, timeout_seconds = ?, enabled = ?, tags = ?, "
-                    "auth = ?, oauth_scopes = ? WHERE id = ?",
+                    "auth = ?, oauth_scopes = ?, oauth_token_url = ?, oauth_client_id = ?, "
+                    "oauth_client_secret = ? WHERE id = ?",
                     (*_server_values(updated)[1:], server_id),
                 )
                 await self._conn.commit()
@@ -391,6 +415,50 @@ class SqliteStore:
                     )
                 if self._fts_enabled:
                     await self._conn.execute("DELETE FROM catalog_fts")
+                    if tools:
+                        await self._conn.executemany(
+                            "INSERT INTO catalog_fts (name, bare_name, description, tags) "
+                            "VALUES (?, ?, ?, ?)",
+                            [
+                                (t.name, t.bare_name, t.description or "", " ".join(t.tags))
+                                for t in tools
+                            ],
+                        )
+                await self._conn.commit()
+            except Exception:
+                await self._conn.rollback()
+                raise
+
+    async def replace_server_catalog(self, server_id: str, tools: Sequence[CatalogTool]) -> None:
+        """Atomically replace only *server_id*'s catalog rows (and FTS entries).
+
+        Tools whose ``server_id`` differs from *server_id* are rejected so a buggy
+        caller cannot silently overwrite another server's rows.
+        """
+        for tool in tools:
+            if tool.server_id != server_id:
+                raise ValueError(
+                    f"Tool {tool.name!r} belongs to server {tool.server_id!r}, not {server_id!r}."
+                )
+        placeholders = ", ".join(["?"] * 10)
+        rows = [_catalog_values(tool) for tool in tools]
+        async with self._write_lock:
+            try:
+                cursor = await self._conn.execute(
+                    "SELECT name FROM catalog_tools WHERE server_id = ?", (server_id,)
+                )
+                old_names = [row["name"] for row in await cursor.fetchall()]
+                await self._conn.execute(
+                    "DELETE FROM catalog_tools WHERE server_id = ?", (server_id,)
+                )
+                if rows:
+                    await self._conn.executemany(
+                        f"INSERT INTO catalog_tools ({_CATALOG_COLUMNS}) VALUES ({placeholders})",
+                        rows,
+                    )
+                if self._fts_enabled:
+                    for name in old_names:
+                        await self._conn.execute("DELETE FROM catalog_fts WHERE name = ?", (name,))
                     if tools:
                         await self._conn.executemany(
                             "INSERT INTO catalog_fts (name, bare_name, description, tags) "
