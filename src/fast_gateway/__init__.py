@@ -32,7 +32,13 @@ from fast_gateway.plugins import GatewayContext, Plugin, PluginContributions
 from fast_gateway.plugins.hil import HumanApprovalPlugin
 from fast_gateway.plugins.oauth import OAuthPlugin
 from fast_gateway.plugins.tools_api import ToolsApiPlugin
-from fast_gateway.reference import audit_hook, confirm_hook, deny_hook
+from fast_gateway.reference import (
+    audit_connect_error_hook,
+    audit_error_hook,
+    audit_hook,
+    confirm_hook,
+    deny_hook,
+)
 from fast_gateway.store import SqliteStore, Store
 
 __version__ = "0.0.3"
@@ -65,6 +71,8 @@ __all__ = [
     "ToolsApiPlugin",
     "Transport",
     "__version__",
+    "audit_connect_error_hook",
+    "audit_error_hook",
     "audit_hook",
     "build_app",
     "confirm_hook",

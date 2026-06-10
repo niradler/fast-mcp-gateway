@@ -73,6 +73,20 @@ def test_merge_hooks_empty_returns_empty() -> None:
     assert merge_hooks() == Hooks()
 
 
+def test_merge_hooks_includes_error_seams() -> None:
+    from fast_gateway.hooks import merge_hooks
+
+    async def on_tool_error(ctx, error):  # type: ignore[no-untyped-def]
+        return None
+
+    async def on_connect_error(server, error):  # type: ignore[no-untyped-def]
+        return None
+
+    merged = merge_hooks(Hooks(tool_error=[on_tool_error]), Hooks(connect_error=[on_connect_error]))
+    assert merged.tool_error == [on_tool_error]
+    assert merged.connect_error == [on_connect_error]
+
+
 @pytest.mark.asyncio
 async def test_create_gateway_applies_plugin_contributions() -> None:
     from fastapi import APIRouter, FastAPI

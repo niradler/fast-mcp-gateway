@@ -1,13 +1,14 @@
 """Hooks: the gateway's single extension mechanism for auth, policy, HIL, audit, etc.
 
-Five seams: ``pre_mcp_connect`` (client factory), ``pre_list_tools``, ``pre_tool_call``,
-``confirmation`` (HIL — fail-safe: deny if none registered), and ``post_tool_call``.
-Hooks chain in registration order; :class:`Hooks` groups them, :class:`HookMiddleware`
-dispatches them.
+Seven seams: ``pre_mcp_connect`` (client factory), ``pre_list_tools``, ``pre_tool_call``,
+``confirmation`` (HIL — fail-safe: deny if none registered), ``post_tool_call``, and the
+observe-only failure seams ``tool_error`` / ``connect_error``. Hooks chain in
+registration order; :class:`Hooks` groups them, :class:`HookMiddleware` dispatches them.
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -21,6 +22,8 @@ from pydantic import BaseModel, Field
 
 from fast_gateway.access import AccessPolicy, current_group
 from fast_gateway.models import ServerRecord
+
+logger = logging.getLogger("fast_gateway.hooks")
 
 
 class ConnectContext(BaseModel):
@@ -77,16 +80,18 @@ PreToolCallHook = Callable[
 ]
 ConfirmationHook = Callable[[ConfirmationContext], Awaitable[bool]]
 PostToolCallHook = Callable[[MiddlewareContext[mt.CallToolRequestParams], Any], Awaitable[Any]]
+ToolErrorHook = Callable[[MiddlewareContext[mt.CallToolRequestParams], Exception], Awaitable[None]]
+ConnectErrorHook = Callable[[ServerRecord, Exception], Awaitable[None]]
 
 
 @dataclass
 class Hooks:
     """Container of hook functions, passed at ``create_gateway``.
 
-    All hooks are async, and each field is a list run in registration order.
-    ``pre_list_tools`` receives the current tool catalog and returns a possibly
-    filtered or transformed catalog; a ``confirmation`` hook returns True to approve
-    a call or False to reject it.
+    All hooks are async; each field is a list run in registration order.
+    ``tool_error`` / ``connect_error`` are observe-only: they fire on denials and
+    failures (which skip ``post_tool_call``), cannot swallow the error, and their
+    own exceptions are logged, never raised.
     """
 
     pre_mcp_connect: list[ConnectHook] = field(default_factory=list)
@@ -94,6 +99,30 @@ class Hooks:
     pre_tool_call: list[PreToolCallHook] = field(default_factory=list)
     confirmation: list[ConfirmationHook] = field(default_factory=list)
     post_tool_call: list[PostToolCallHook] = field(default_factory=list)
+    tool_error: list[ToolErrorHook] = field(default_factory=list)
+    connect_error: list[ConnectErrorHook] = field(default_factory=list)
+
+    async def dispatch_tool_error(
+        self, context: MiddlewareContext[mt.CallToolRequestParams], error: Exception
+    ) -> None:
+        """Run every ``tool_error`` hook; a failing hook is logged and never masks *error*."""
+        for hook in self.tool_error:
+            try:
+                await hook(context, error)
+            except Exception:
+                logger.warning(
+                    "tool_error hook failed for tool %r", context.message.name, exc_info=True
+                )
+
+    async def dispatch_connect_error(self, server: ServerRecord, error: Exception) -> None:
+        """Run every ``connect_error`` hook; a failing hook is logged and never masks *error*."""
+        for hook in self.connect_error:
+            try:
+                await hook(server, error)
+            except Exception:
+                logger.warning(
+                    "connect_error hook failed for server %r", server.name, exc_info=True
+                )
 
 
 def merge_hooks(*groups: Hooks) -> Hooks:
@@ -110,6 +139,8 @@ def merge_hooks(*groups: Hooks) -> Hooks:
         merged.pre_tool_call.extend(group.pre_tool_call)
         merged.confirmation.extend(group.confirmation)
         merged.post_tool_call.extend(group.post_tool_call)
+        merged.tool_error.extend(group.tool_error)
+        merged.connect_error.extend(group.connect_error)
     return merged
 
 
@@ -144,6 +175,16 @@ class HookMiddleware(Middleware):
         return tools
 
     async def on_call_tool(
+        self, context: MiddlewareContext[mt.CallToolRequestParams], call_next: Callable[..., Any]
+    ) -> Any:
+        """Run the governed call; any denial or failure fires ``tool_error`` then re-raises."""
+        try:
+            return await self._run_call_tool(context, call_next)
+        except Exception as exc:
+            await self.hooks.dispatch_tool_error(context, exc)
+            raise
+
+    async def _run_call_tool(
         self, context: MiddlewareContext[mt.CallToolRequestParams], call_next: Callable[..., Any]
     ) -> Any:
         message = context.message

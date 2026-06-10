@@ -74,7 +74,8 @@ async def collect_catalog(
     """Introspect all enabled servers concurrently; return ``(catalog, failed_ids)``.
 
     Failures are isolated per server — a transient blip does not wipe the rest.
-    The caller uses ``failed_ids`` to retain last-known rows for unreachable upstreams.
+    Each failure fires the ``connect_error`` hooks; the caller uses ``failed_ids``
+    to retain last-known rows for unreachable upstreams.
     """
     enabled = [server for server in servers if server.enabled]
     results = await asyncio.gather(
@@ -91,6 +92,8 @@ async def collect_catalog(
                 result,
                 exc_info=result,
             )
+            if isinstance(result, Exception):
+                await hooks.dispatch_connect_error(server, result)
             failed_ids.add(server.id)
             continue
         catalog.extend(result)

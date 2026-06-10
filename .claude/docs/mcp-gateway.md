@@ -374,6 +374,14 @@ Same branch. Decisions made with Nir, implemented and live-validated
 - Also fixed: `/admin/servers/{id}/test` and `/tools` ran `await factory()` outside
   their try block — a connect-settings error (unresolvable ref) was a 500, now
   reported in-band / as 502.
+- **Error hook seams (Nir's ask):** `Hooks.tool_error` (ctx, exc — fires on policy
+  block, deny, rejected confirmation, upstream failure; `on_call_tool` wraps the whole
+  body) and `Hooks.connect_error` (server, exc — fires once per failed server from
+  `collect_catalog`, i.e. reload/startup/per-server refresh; live-call connect failures
+  surface via `tool_error` instead, deliberately no double-fire). Both observe-only:
+  dispatch helpers on `Hooks` log hook exceptions and never mask the original error.
+  Reference `audit_error_hook` / `audit_connect_error_hook` wired by `build_app` under
+  `policy.audit` — audit now covers failures, not just successes.
 
 ## Earlier Next (Milestone 5)
 

@@ -366,11 +366,17 @@ Each binds to the layer where it belongs:
 | `pre_list_tools` | `HookMiddleware.on_list_tools` | on catalog requests |
 | `pre_tool_call` | `HookMiddleware.on_call_tool` (pre) | before forwarding a call |
 | `confirmation` | `on_call_tool` (when `REQUIRE_CONFIRMATION`) | human-in-the-loop approval |
-| `post_tool_call` | `HookMiddleware.on_call_tool` (post) | after the upstream result |
+| `post_tool_call` | `HookMiddleware.on_call_tool` (post) | after the upstream result (success only) |
+| `tool_error` | `on_call_tool` (failure path) | when a call is denied, rejected, or fails upstream |
+| `connect_error` | catalog introspection | when an upstream fails introspection (reload / startup / refresh) |
 
 Hooks chain in registration order. A `pre_tool_call` hook may **continue**, **mutate
 args**, **deny**, or return **`REQUIRE_CONFIRMATION`** — which triggers the
-`confirmation` hooks.
+`confirmation` hooks. The two error seams are **observe-only**: they receive the
+exception for logging/alerting/metrics but cannot swallow it, and a failing error hook
+never masks the original error. The reference `audit_error_hook()` /
+`audit_connect_error_hook()` complete the audit trail that `audit_hook()` (success-only)
+would otherwise miss; the Mode-B daemon wires all three when `policy.audit` is on.
 
 > [!IMPORTANT]
 > Confirmation is **fail-safe**: if any confirmation hook rejects, or none is

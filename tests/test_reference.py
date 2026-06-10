@@ -1,12 +1,22 @@
-"""Tests for reference hook factories: audit_hook, deny_hook, confirm_hook."""
+"""Tests for reference hook factories: audit, error-audit, deny, and confirm hooks."""
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from fast_gateway.hooks import ToolDecision
-from fast_gateway.reference import audit_hook, confirm_hook, deny_hook
+from fast_gateway.models import ServerRecord
+from fast_gateway.reference import (
+    audit_connect_error_hook,
+    audit_error_hook,
+    audit_hook,
+    confirm_hook,
+    deny_hook,
+)
 
 
 def make_context(name: str, arguments: dict[str, Any] | None = None) -> Any:
@@ -26,6 +36,23 @@ async def test_audit_hook_with_string_response() -> None:
     ctx = make_context("some_tool")
     result = await hook(ctx, "hello")
     assert result == "hello"
+
+
+async def test_audit_error_hook_logs_failure(caplog: pytest.LogCaptureFixture) -> None:
+    hook = audit_error_hook()
+    with caplog.at_level(logging.WARNING, logger="fast_gateway.reference"):
+        await hook(make_context("svc_deploy"), RuntimeError("boom"))
+    assert "svc_deploy" in caplog.text
+    assert "boom" in caplog.text
+
+
+async def test_audit_connect_error_hook_logs_server(caplog: pytest.LogCaptureFixture) -> None:
+    hook = audit_connect_error_hook()
+    server = ServerRecord(id="s1", name="weather", url="https://weather.example.com/mcp")
+    with caplog.at_level(logging.WARNING, logger="fast_gateway.reference"):
+        await hook(server, RuntimeError("refused"))
+    assert "weather" in caplog.text
+    assert "refused" in caplog.text
 
 
 async def test_deny_hook_matches_pattern() -> None:

@@ -14,7 +14,15 @@ from typing import Any
 import mcp.types as mt
 from fastmcp.server.middleware import MiddlewareContext
 
-from fast_gateway.hooks import PostToolCallHook, PreToolCallHook, ToolCallResult, ToolDecision
+from fast_gateway.hooks import (
+    ConnectErrorHook,
+    PostToolCallHook,
+    PreToolCallHook,
+    ToolCallResult,
+    ToolDecision,
+    ToolErrorHook,
+)
+from fast_gateway.models import ServerRecord
 
 logger = logging.getLogger("fast_gateway.reference")
 
@@ -32,6 +40,30 @@ def audit_hook() -> PostToolCallHook:
         return response
 
     return _audit
+
+
+def audit_error_hook() -> ToolErrorHook:
+    """Return a tool_error hook that logs denied/failed tool calls at WARNING.
+
+    Completes the audit trail: ``post_tool_call`` only sees successes, so denials,
+    confirmation rejections, and upstream failures would otherwise go unlogged.
+    """
+
+    async def _audit_error(
+        ctx: MiddlewareContext[mt.CallToolRequestParams], error: Exception
+    ) -> None:
+        logger.warning("tool call failed: %s - %s", ctx.message.name, error)
+
+    return _audit_error
+
+
+def audit_connect_error_hook() -> ConnectErrorHook:
+    """Return a connect_error hook that logs failed upstream introspection at WARNING."""
+
+    async def _audit_connect_error(server: ServerRecord, error: Exception) -> None:
+        logger.warning("upstream connect failed: %s (%s) - %s", server.name, server.url, error)
+
+    return _audit_connect_error
 
 
 def deny_hook(patterns: Sequence[str]) -> PreToolCallHook:
