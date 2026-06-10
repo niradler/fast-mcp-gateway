@@ -4,8 +4,8 @@
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
-install: ## Create the venv and install all (incl. dev) dependencies
-	uv sync
+install: ## Create the venv and install all (incl. dev + cli) dependencies
+	uv sync --extra cli
 
 dev: install ## Alias for install (set up the dev environment)
 

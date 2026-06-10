@@ -29,7 +29,7 @@ audit, and cost limits are all plain async functions passed to `create_gateway` 
 
 ## Key decision: FastMCP v3, not v2
 
-The original plan locked FastMCP **v2** (decision #10). We are on **v3.3.1** (latest,
+The original plan locked FastMCP **v2** (decision #10). We are on **v3.4.x** (latest,
 installed). v3 supports everything needed, with renamed APIs — use these:
 
 - `FastMCP.as_proxy(...)` → `from fastmcp.server import create_proxy` /
