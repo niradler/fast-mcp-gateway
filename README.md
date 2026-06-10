@@ -56,8 +56,8 @@ auth schemes, no namespacing, no central policy, and no way to hide a dangerous 
 - **Groups & group-scoped endpoints** — expose a curated subset of servers/tools at
   `/mcp/g/{group}`, served by the same shared MCP app (no per-group duplication).
 - **Plugins** — bundle hooks, FastMCP middleware, an admin router, ASGI mounts, and
-  meta-tools into one named extension with `setup` / `teardown`. Five ship in the box:
-  policy, tools REST API, browser HIL, upstream OAuth, and agent-os.
+  meta-tools into one named extension with `setup` / `teardown`. Four ship in the box:
+  tools REST API, browser HIL, upstream OAuth, and agent-os.
 - **Programmatic tool access** — `gateway.call_tool(...)` / `gateway.list_tools()` /
   `gateway.client()` drive the gateway in-process through the full governance chain,
   no HTTP loopback.
@@ -391,24 +391,23 @@ templates for your own:
 
 | Plugin | Import | What it adds |
 | --- | --- | --- |
-| **policy** | `PolicyPlugin(deny=[...], confirm=[...], audit=True)` | glob-based hard deny, confirmation gating, and audit logging of every call |
 | **tools** | `ToolsApiPlugin()` | REST routes to list / describe / invoke the governed tools (`/admin/tools`) |
 | **hil** | `HumanApprovalPlugin(config)` | browser approval page for calls flagged `REQUIRE_CONFIRMATION` |
 | **oauth** | `OAuthPlugin()` | attaches the cached upstream OAuth credentials at connect time (CLI/daemon mode) |
 | **agentos** | `AgtAgentOsPlugin(settings)` | Microsoft agent-governance-toolkit policy engine (experimental, `agt` extra) |
 
-The Mode-B daemon (`factory.build_app`) wires policy, tools, oauth, and (when enabled)
+Plain deny / confirm / audit governance needs no plugin — pass the reference hooks
+(`deny_hook`, `confirm_hook`, `audit_hook`) directly. The Mode-B daemon
+(`factory.build_app`) wires the reference hooks, tools, oauth, and (when enabled)
 hil automatically; in Mode A you pass exactly the ones you want to `create_gateway`:
 
 ```python
-from fast_gateway import PolicyPlugin, ToolsApiPlugin, create_gateway, SqliteStore
+from fast_gateway import Hooks, ToolsApiPlugin, create_gateway, deny_hook, SqliteStore
 
 gateway = create_gateway(
     store=SqliteStore("gateway.db"),
-    plugins=[
-        PolicyPlugin(deny=["*_delete_*"], confirm=["github_merge_*"]),
-        ToolsApiPlugin(),
-    ],
+    hooks=Hooks(pre_tool_call=[deny_hook(["*_delete_*"])]),
+    plugins=[ToolsApiPlugin()],
 )
 ```
 
@@ -432,6 +431,8 @@ policy rejects. Additional agent-os capabilities are opt-in toggles on `AgtAgent
 | `enable_response_scan` | `post_tool_call` | block responses flagged unsafe (credential/PII/threat) |
 | `enable_credential_redaction` | `post_tool_call` | redact secrets/PII out of responses |
 | `enable_egress_policy` (+ `egress_rules`) | `pre_mcp_connect` | refuse upstreams whose URL is outside the allowlist |
+| `enable_mcp_security_scan` | `pre_list_tools` | scan tool definitions for poisoning (hidden instructions, unicode tricks, schema abuse); drop flagged tools when `fail_closed` |
+| `enable_rate_limiting` (+ `rate_limit_max_calls`, `rate_limit_window_seconds`) | `pre_tool_call` | per-group sliding-window call budget; deny on exhaustion |
 
 ```bash
 uv add "fast-gateway[agt]"   # from within a uv project — honors the git source

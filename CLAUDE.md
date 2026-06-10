@@ -75,7 +75,6 @@ src/fast_gateway/
   api/servers.py    # admin CRUD router (servers)
   api/groups.py     # admin CRUD router (groups)
   plugins/          # folder-per-plugin; __init__.py holds the Plugin contract
-    policy/         # PolicyPlugin — deny / confirm / audit governance
     tools_api/      # ToolsApiPlugin — REST list/describe/invoke over the tools
     hil/            # HumanApprovalPlugin — browser approval page
     oauth/          # OAuthPlugin — upstream OAuth (Mode B only)

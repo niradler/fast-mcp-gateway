@@ -8,24 +8,34 @@ Detectors are built once per plugin instance and run inline (synchronous, cheap)
 
 from __future__ import annotations
 
+import logging
+import warnings
+from collections.abc import Sequence
 from typing import Any
 
 from agent_os.credential_redactor import CredentialRedactor
 from agent_os.egress_policy import EgressPolicy
 from agent_os.mcp_response_scanner import MCPResponseScanner
+from agent_os.mcp_security import MCPSecurityScanner
+from agent_os.mcp_sliding_rate_limiter import MCPSlidingRateLimiter
 from agent_os.prompt_injection import DetectionConfig, PromptInjectionDetector
 from agent_os.semantic_policy import PolicyDenied, SemanticPolicyEngine
 from fastmcp.exceptions import ToolError
+from fastmcp.tools.base import Tool
 
+from fast_gateway.access import current_group
 from fast_gateway.hooks import (
     ConnectContext,
     ConnectHook,
+    ListToolsHook,
     PostToolCallHook,
     PreToolCallHook,
     ToolCallResult,
     ToolDecision,
 )
 from fast_gateway.plugins.agentos.settings import AgtAgentOsSettings
+
+_logger = logging.getLogger("fast_gateway.plugins.agentos")
 
 
 def _args_text(arguments: dict[str, Any] | None) -> str:
@@ -117,6 +127,73 @@ def make_credential_redaction_hook(settings: AgtAgentOsSettings) -> PostToolCall
         return response
 
     return credential_redaction
+
+
+def make_mcp_security_scan_hook(settings: AgtAgentOsSettings) -> ListToolsHook:
+    """Filter or log tool definitions flagged as poisoned by the agent-os security scanner.
+
+    When ``fail_closed`` is True, flagged tools are dropped from the returned catalog
+    and a warning is logged.  When False, the warning is logged but the tool is kept.
+    Scan errors for a single tool are swallowed; the tool is treated as clean so a
+    transient failure does not blank the entire catalog.
+    """
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        scanner = MCPSecurityScanner()
+
+    async def mcp_security_scan(ctx: Any, tools: Sequence[Tool]) -> Sequence[Tool]:
+        clean: list[Tool] = []
+        for tool in tools:
+            try:
+                schema = tool.parameters if tool.parameters is not None else None
+                threats = scanner.scan_tool(
+                    tool.name,
+                    tool.description or "",
+                    schema,
+                    server_name="gateway",
+                )
+            except Exception:
+                _logger.warning("MCP security scan error for tool %r; treating as clean", tool.name)
+                clean.append(tool)
+                continue
+            if threats:
+                names = ", ".join(t.threat_type.value for t in threats)
+                if settings.fail_closed:
+                    _logger.warning(
+                        "MCP security scan: dropping tool %r -- threats: %s", tool.name, names
+                    )
+                    continue
+                _logger.warning(
+                    "MCP security scan: tool %r flagged (kept) -- threats: %s", tool.name, names
+                )
+            clean.append(tool)
+        return clean
+
+    return mcp_security_scan
+
+
+def make_rate_limiting_hook(settings: AgtAgentOsSettings) -> PreToolCallHook:
+    """Deny tool calls that exceed the per-group sliding-window budget.
+
+    The rate-limit key is the active group from ``current_group``; when no group is
+    set the plugin's ``default_principal`` is used so all ungrouped callers share
+    one budget.
+    """
+    limiter = MCPSlidingRateLimiter(
+        max_calls_per_window=settings.rate_limit_max_calls,
+        window_size=settings.rate_limit_window_seconds,
+    )
+
+    async def rate_limit(ctx: Any) -> ToolCallResult | None:
+        principal = current_group.get() or settings.default_principal
+        if not limiter.try_acquire(principal):
+            return ToolCallResult(
+                decision=ToolDecision.DENY,
+                reason=f"Rate limit exceeded for {principal!r}",
+            )
+        return None
+
+    return rate_limit
 
 
 def make_egress_hook(settings: AgtAgentOsSettings) -> ConnectHook:
