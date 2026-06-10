@@ -305,6 +305,84 @@ parallel runs race). Subagents do NOT edit `__init__.py`/`pyproject.toml`/README
 main thread owns those central edits. Each subagent must pass the full gate
 (`ruff`, `mypy --strict`, `tools/check_slop.py`, `pytest`). No inline comments.
 
+## Plugin folders + programmatic access (June 2026 session)
+
+Branch `feat/plugin-folders-and-programmatic-api` (PR #5).
+
+- **Folder-per-plugin layout:** every plugin is `plugins/<name>/` with `__init__.py`
+  re-exports + `plugin.py` (convention in CLAUDE.md). Four bundled plugins: tools_api,
+  hil, oauth, agentos. A plugin must carry real logic; plain deny/confirm/audit stays
+  as the reference hooks (`build_app` composes them directly).
+- **Programmatic in-process access (no HTTP loopback):** `Gateway.client()` returns
+  `fastmcp.Client(self.mcp)`; `Gateway.call_tool(name, args, group=, timeout_seconds=)`
+  and `Gateway.list_tools(group=)` are one-shot conveniences. Group scoping works by
+  setting `access.current_group` BEFORE entering the client context (the in-process
+  server task copies the caller's context at `__aenter__`). Tests: `test_gateway_client.py`.
+- **`ToolsApiPlugin`** (`plugins/tools_api/`, name="tools"): REST bridge under
+  `/admin/tools` — GET list (`?group=`), GET `/{name}` schema (404 hides denied), POST
+  `/{name}/call` (errors in-band via `is_error`, mirroring MCP wire semantics; uses
+  `raise_on_error=False`). Wired in `build_app`; the admin bearer guard covers it
+  (test-proven). Live validator: `scripts/validate_tools_api.py`.
+- **agentos additions:** `enable_mcp_security_scan` (tool-poisoning scan on
+  `pre_list_tools`, drops flagged tools when `fail_closed`) and `enable_rate_limiting`
+  (per-group sliding window on `pre_tool_call`). Audit verdict: the rest of the toolkit
+  needs an agent runtime and does not fit a stateless proxy. Live-validated via
+  `examples/poisoned_upstream.py` + env toggles on `examples/agentos_gateway.py`.
+- aiohttp pinned past CVE-2026-34993/47265 (3.14.1); `pip-audit` clean.
+- **Test gotcha:** holding the gateway lifespan open across an async pytest fixture yield
+  crashes at teardown (anyio cancel scope exits in a different task). Enter the lifespan
+  INSIDE each test via an `asynccontextmanager` helper instead (see `test_tools_api_plugin.py`).
+- Governed-policy-without-upstreams test trick: register servers `enabled=False` (reload
+  skips mounting/introspection but `policy.rebuild` sees ALL servers), then seed the
+  catalog with `store.replace_catalog` AFTER reload.
+
+## Upstream auth expansion + HIL API + startup perf (June 2026 session)
+
+Same branch. Decisions made with Nir, implemented and live-validated
+(`scripts/validate_upstream_auth.py`, 18/18).
+
+- **Secret refs (core, not a plugin):** `secret_refs.py` resolves `${env:VAR}` /
+  `${file:path}` inside `static_headers` values at connect time (`connect.py`). Chosen
+  over `ServerAuth.BEARER/HEADER` enum fields — reuses the existing header mechanism,
+  covers any scheme/multiple headers, zero new model fields. Registry/admin API only
+  ever hold the reference.
+- **OAuth client_credentials (in `plugins/oauth/`, importable standalone):**
+  `ServerAuth.OAUTH_CLIENT_CREDENTIALS` + `oauth_token_url`/`oauth_client_id`/
+  `oauth_client_secret` (validator REJECTS raw secrets — must be a secret ref).
+  `ClientCredentialsAuth` (httpx.Auth, client_secret_post, in-memory token cache,
+  expiry skew 60s, one forced refresh on 401). `client_credentials_hook()` keeps one
+  provider per server-config so reconnects don't hammer the token endpoint; Mode A
+  uses the hook directly, `OAuthPlugin` covers Mode B. httpx now an explicit dep.
+- **Store:** 3 new nullable sqlite columns (auto-migrated); `update_server` now
+  re-validates the merged record (was `model_copy`, which skips validators) so a patch
+  can never persist a row that fails to load later.
+- **HIL:** `HumanApprovalPlugin(notifier=...)` — async `(approval, url)` callable,
+  browser-open is the default; notifier failure logs + keeps waiting. JSON API
+  alongside HTML: `GET /admin/hil/pending`, `GET /admin/hil/pending/{id}`,
+  `POST .../approve|deny` (declared before the HTML `/{approval_id}` catch-all —
+  route order matters).
+- **Startup perf (Nir's ask):** root cause = lifespan blocking on `collect_catalog`
+  fan-out (one dead upstream stalls boot up to its timeout). Builder split into
+  `rebuild_mounts` (pure in-memory; mounts are lazy) + `refresh_catalog` +
+  `refresh_server(id)`. `create_gateway(startup_catalog="refresh"|"background"|"skip")`
+  — library default `refresh` (back-compat), daemon config default **background**
+  (serves instantly with last-known catalog; `Gateway.startup_catalog_task` exposes the
+  in-flight refresh for tests/await). New `POST /admin/servers/{id}/refresh`
+  re-introspects one server; `store.replace_server_catalog` touches only its rows.
+- CLI: `add --oauth-token-url/--oauth-client-id/--oauth-client-secret` (mutually
+  exclusive with `--oauth`); header refs need no CLI change.
+- Also fixed: `/admin/servers/{id}/test` and `/tools` ran `await factory()` outside
+  their try block — a connect-settings error (unresolvable ref) was a 500, now
+  reported in-band / as 502.
+- **Error hook seams (Nir's ask):** `Hooks.tool_error` (ctx, exc — fires on policy
+  block, deny, rejected confirmation, upstream failure; `on_call_tool` wraps the whole
+  body) and `Hooks.connect_error` (server, exc — fires once per failed server from
+  `collect_catalog`, i.e. reload/startup/per-server refresh; live-call connect failures
+  surface via `tool_error` instead, deliberately no double-fire). Both observe-only:
+  dispatch helpers on `Hooks` log hook exceptions and never mask the original error.
+  Reference `audit_error_hook` / `audit_connect_error_hook` wired by `build_app` under
+  `policy.audit` — audit now covers failures, not just successes.
+
 ## Earlier Next (Milestone 5)
 
 Reference hooks (audit, allow/deny, confirmation), docs, packaging dry-run — do NOT publish.

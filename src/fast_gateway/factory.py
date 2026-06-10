@@ -9,11 +9,18 @@ from fastapi import Depends, FastAPI, Header, HTTPException, params
 
 from fast_gateway.app import create_gateway
 from fast_gateway.config import GatewayConfig, apply_oauth_token_dir
-from fast_gateway.hil import HumanApprovalPlugin
 from fast_gateway.hooks import Hooks
 from fast_gateway.plugins import Plugin
+from fast_gateway.plugins.hil import HumanApprovalPlugin
 from fast_gateway.plugins.oauth import OAuthPlugin
-from fast_gateway.reference import audit_hook, confirm_hook, deny_hook
+from fast_gateway.plugins.tools_api import ToolsApiPlugin
+from fast_gateway.reference import (
+    audit_connect_error_hook,
+    audit_error_hook,
+    audit_hook,
+    confirm_hook,
+    deny_hook,
+)
 from fast_gateway.store import SqliteStore
 
 
@@ -40,13 +47,24 @@ def build_app(config: GatewayConfig) -> FastAPI:
     store = SqliteStore(config.db)
 
     pre_tool_call = [deny_hook(config.policy.deny), confirm_hook(config.policy.confirm)]
-    post_tool_call = [audit_hook()] if config.policy.audit else []
-    hooks = Hooks(pre_tool_call=pre_tool_call, post_tool_call=post_tool_call)
+    audit = config.policy.audit
+    hooks = Hooks(
+        pre_tool_call=pre_tool_call,
+        post_tool_call=[audit_hook()] if audit else [],
+        tool_error=[audit_error_hook()] if audit else [],
+        connect_error=[audit_connect_error_hook()] if audit else [],
+    )
 
     hil_plugins: list[Plugin] = [HumanApprovalPlugin(config.hil)] if config.hil.enabled else []
-    plugins: list[Plugin] = [OAuthPlugin(), *hil_plugins]
+    plugins: list[Plugin] = [OAuthPlugin(), ToolsApiPlugin(), *hil_plugins]
 
-    gateway = create_gateway(store, hooks, plugins=plugins, name=config.name)
+    gateway = create_gateway(
+        store,
+        hooks,
+        plugins=plugins,
+        name=config.name,
+        startup_catalog=config.startup_catalog,
+    )
 
     app = FastAPI(title=config.name, lifespan=gateway.lifespan)
 

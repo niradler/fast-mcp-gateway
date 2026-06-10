@@ -23,6 +23,8 @@ each bound to the gateway hook seam where it belongs:
 | **Response scan** | `enable_response_scan` | `post_tool_call` | block responses flagged unsafe (credential / PII / threat) |
 | **Credential redaction** | `enable_credential_redaction` | `post_tool_call` | redact secrets / PII out of responses |
 | **Egress policy** | `enable_egress_policy` (+ `egress_rules`) | `pre_mcp_connect` | refuse upstreams whose URL is outside the allowlist |
+| **MCP security scan** | `enable_mcp_security_scan` | `pre_list_tools` | drop (or log) tools flagged for poisoning / hidden instructions |
+| **Rate limiting** | `enable_rate_limiting` (+ `rate_limit_max_calls`, `rate_limit_window_seconds`) | `pre_tool_call` | deny tool calls that exceed the per-group sliding-window budget |
 
 Where agent-os already defines a config type it is reused verbatim — `PolicyDocument`,
 `DetectionConfig`, `IntentCategory`, `SemanticPolicyConfig`, `EgressRule` — so values

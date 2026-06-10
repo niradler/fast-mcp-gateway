@@ -17,6 +17,7 @@ from fast_gateway.access import current_group
 from fast_gateway.hooks import (
     ConnectHook,
     Hooks,
+    ListToolsHook,
     PostToolCallHook,
     PreToolCallHook,
     ToolCallResult,
@@ -26,7 +27,9 @@ from fast_gateway.plugins import GatewayContext, PluginContributions
 from fast_gateway.plugins.agentos.detectors import (
     make_credential_redaction_hook,
     make_egress_hook,
+    make_mcp_security_scan_hook,
     make_prompt_injection_hook,
+    make_rate_limiting_hook,
     make_response_scan_hook,
     make_semantic_policy_hook,
 )
@@ -56,7 +59,13 @@ class AgtAgentOsPlugin:
     def contributions(self, context: GatewayContext) -> PluginContributions:
         settings = self._settings
 
+        list_tools: list[ListToolsHook] = []
+        if settings.enable_mcp_security_scan:
+            list_tools.append(make_mcp_security_scan_hook(settings))
+
         pre: list[PreToolCallHook] = []
+        if settings.enable_rate_limiting:
+            pre.append(make_rate_limiting_hook(settings))
         if settings.enable_prompt_injection:
             pre.append(make_prompt_injection_hook(settings))
         pre.append(self._make_enforce_hook())
@@ -74,7 +83,12 @@ class AgtAgentOsPlugin:
             connect.append(make_egress_hook(settings))
 
         return PluginContributions(
-            hooks=Hooks(pre_mcp_connect=connect, pre_tool_call=pre, post_tool_call=post)
+            hooks=Hooks(
+                pre_mcp_connect=connect,
+                pre_list_tools=list_tools,
+                pre_tool_call=pre,
+                post_tool_call=post,
+            )
         )
 
     def _make_enforce_hook(self) -> PreToolCallHook:

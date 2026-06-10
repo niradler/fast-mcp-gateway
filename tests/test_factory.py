@@ -104,6 +104,27 @@ async def test_hil_plugin_mounts_admin_route(tmp_path: Path) -> None:
             assert r.status_code == 200
 
 
+async def test_tools_api_plugin_wired_in_build_app(client: httpx.AsyncClient) -> None:
+    r = await client.get("/admin/tools")
+    assert r.status_code == 200
+    names = {t["name"] for t in r.json()}
+    assert {"search_tools", "describe_tool"} <= names
+
+
+async def test_admin_token_guards_tools_api_routes(tmp_path: Path) -> None:
+    """The bearer guard must cover the plugin's nested router, including invoke."""
+    cfg = _make_config(tmp_path, admin_token="supersecret")
+    application = build_app(cfg)
+    async with LifespanManager(application) as manager:
+        transport = httpx.ASGITransport(app=manager.app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            assert (await c.get("/admin/tools")).status_code == 401
+            denied = await c.post("/admin/tools/search_tools/call", json={})
+            assert denied.status_code == 401
+            ok = await c.get("/admin/tools", headers={"Authorization": "Bearer supersecret"})
+            assert ok.status_code == 200
+
+
 async def test_oauth_plugin_wired_in_build_app(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

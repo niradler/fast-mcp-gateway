@@ -23,6 +23,7 @@ from key_value.aio.stores.filetree import (
 from fast_gateway.hooks import ConnectContext, ConnectSettings, Hooks
 from fast_gateway.models import ServerAuth, ServerRecord
 from fast_gateway.plugins import GatewayContext, PluginContributions
+from fast_gateway.plugins.oauth.client_credentials import client_credentials_hook
 
 logger = logging.getLogger("fast_gateway.plugins.oauth")
 
@@ -109,14 +110,18 @@ def build_oauth(server: ServerRecord, *, interactive: bool = True) -> OAuth:
 
 
 class OAuthPlugin:
-    """Mode-B-only plugin that attaches OAuth auth to upstream transports at connect time.
+    """Plugin that attaches OAuth auth to upstream transports at connect time.
 
-    Auto-registered by ``build_app``. For non-OAuth servers the hook is a no-op.
-    For servers with ``auth=ServerAuth.OAUTH`` it returns ``ConnectSettings(auth=...)``
-    so the generic transport seam carries the provider — no OAuth logic in core.
+    Auto-registered by ``build_app``; a no-op for non-OAuth servers. ``OAUTH`` gets
+    the browser authorization-code provider (primed via ``fast-gateway login``);
+    ``OAUTH_CLIENT_CREDENTIALS`` gets the headless machine-to-machine provider.
+    Both flow through the generic transport seam — no OAuth logic in core.
     """
 
     name = "oauth"
+
+    def __init__(self) -> None:
+        self._client_credentials = client_credentials_hook()
 
     def contributions(self, context: GatewayContext) -> PluginContributions:
         """Return a single ``pre_mcp_connect`` hook that attaches OAuth when needed."""
@@ -125,4 +130,4 @@ class OAuthPlugin:
     async def _attach_oauth(self, ctx: ConnectContext) -> ConnectSettings | None:
         if ctx.server.auth is ServerAuth.OAUTH:
             return ConnectSettings(auth=build_oauth(ctx.server, interactive=False))
-        return None
+        return await self._client_credentials(ctx)

@@ -66,8 +66,8 @@ def build_servers_router(store: Store, hooks: Hooks) -> APIRouter:
         """Live introspection of an upstream's tools."""
         server = await _require_server(server_id)
         factory = build_client_factory(server, hooks)
-        client = await factory()
         try:
+            client = await factory()
             async with client:
                 tools = await client.list_tools()
         except Exception as exc:
@@ -78,11 +78,16 @@ def build_servers_router(store: Store, hooks: Hooks) -> APIRouter:
 
     @router.post("/{server_id}/test")
     async def test_server(server_id: str) -> dict[str, Any]:
-        """Connect to the upstream and perform the MCP handshake."""
+        """Connect to the upstream and perform the MCP handshake.
+
+        The factory call runs inside the try because resolving connect settings can
+        itself fail (e.g. an unresolvable ``${env:}`` secret ref) — that is exactly
+        what this endpoint exists to surface.
+        """
         server = await _require_server(server_id)
         factory = build_client_factory(server, hooks)
-        client = await factory()
         try:
+            client = await factory()
             async with client:
                 tools = await client.list_tools()
         except Exception as exc:

@@ -29,7 +29,7 @@ audit, and cost limits are all plain async functions passed to `create_gateway` 
 
 ## Key decision: FastMCP v3, not v2
 
-The original plan locked FastMCP **v2** (decision #10). We are on **v3.3.1** (latest,
+The original plan locked FastMCP **v2** (decision #10). We are on **v3.4.x** (latest,
 installed). v3 supports everything needed, with renamed APIs — use these:
 
 - `FastMCP.as_proxy(...)` → `from fastmcp.server import create_proxy` /
@@ -45,7 +45,7 @@ If we ever pin back to v2, revert these and set `fastmcp>=2,<3`.
 ## Commands
 
 ```bash
-make install     # uv sync (venv + deps incl. dev group)
+make install     # uv sync --extra cli (venv + deps incl. dev group)
 make check       # lint + format-check + typecheck + test  (CI gate; run before done)
 make test        # pytest
 make format      # ruff format + safe lint fixes
@@ -55,21 +55,38 @@ make build       # sdist + wheel
 
 ## Layout
 
-```
+```text
 src/fast_gateway/
-  app.py            # create_gateway() -> Gateway(mcp, mcp_app, admin_router, builder)
+  app.py            # create_gateway() -> Gateway; in-process client/call_tool/list_tools
   hooks.py          # Hooks container + HookMiddleware (on_call_tool / on_list_tools)
   connect.py        # build_client_factory() — runs pre_mcp_connect, builds ProxyClient
-  builder.py        # GatewayBuilder: registry -> create_proxy + namespace mount; reload()
+  secret_refs.py    # ${env:}/${file:} secret references, resolved at connect time
+  builder.py        # GatewayBuilder: rebuild_mounts / refresh_catalog / refresh_server / reload
   search.py         # register_search_tools() — search_tools / describe_tool meta-tools
+  catalog.py        # collect_catalog() — upstream introspection -> persisted snapshot
+  access.py         # AccessPolicy (allow/deny globs) + current_group ContextVar
+  routing.py        # GroupDispatch ASGI shim for /mcp/g/{group}
+  reference.py      # reference hook factories: audit_hook / deny_hook / confirm_hook
+  config.py         # GatewayConfig / LocalPolicy loaders (Mode B)
+  factory.py        # build_app(config) — assembles the Mode-B daemon
+  cli.py            # Typer CLI (serve / add / list / group / login / connect)
   models.py         # pydantic schemas (ServerRecord/Create/Patch, GroupRecord, ...)
   store/base.py     # Store protocol
   store/sqlite.py   # default SqliteStore
   api/servers.py    # admin CRUD router (servers)
   api/groups.py     # admin CRUD router (groups)
+  plugins/          # folder-per-plugin; __init__.py holds the Plugin contract
+    tools_api/      # ToolsApiPlugin — REST list/describe/invoke over the tools
+    hil/            # HumanApprovalPlugin — approval gate (browser + JSON API, pluggable notifier)
+    oauth/          # OAuthPlugin — browser OAuth (Mode B) + headless client_credentials
+    agentos/        # AgtAgentOsPlugin — agent-governance-toolkit (experimental)
 examples/basic_app.py
 tests/
 ```
+
+**Plugin convention:** every plugin is a folder `src/fast_gateway/plugins/<name>/` with
+an `__init__.py` re-exporting its public names and a `plugin.py` holding the plugin
+class. Cross-cutting features ship as plugins, not core subsystems.
 
 ## Conventions
 

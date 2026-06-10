@@ -5,7 +5,7 @@ from __future__ import annotations
 import html
 import json
 
-from fast_gateway.hil.pending import PendingApproval
+from fast_gateway.plugins.hil.pending import PendingApproval
 
 _STYLE = (
     "<style>"

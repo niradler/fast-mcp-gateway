@@ -418,6 +418,106 @@ def test_add_no_oauth_posts_auth_none(mock_client_factory: MagicMock) -> None:
     assert body["oauth_scopes"] == []
 
 
+def test_add_client_credentials_posts_cc_auth(mock_client_factory: MagicMock) -> None:
+    requests_seen: list[httpx.Request] = []
+
+    cc_record = {
+        **_SERVER_RECORD,
+        "auth": "oauth_client_credentials",
+        "oauth_token_url": "https://idp/token",
+        "oauth_client_id": "cid",
+        "oauth_client_secret": "${env:CC_SECRET}",
+    }
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        requests_seen.append(req)
+        if req.method == "POST" and "/servers" in req.url.path:
+            return httpx.Response(201, json=cc_record)
+        return httpx.Response(200, json={"status": "reloaded"})
+
+    mock_client_factory.return_value = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="http://127.0.0.1:8000"
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "add",
+            "weather",
+            "https://example.com/mcp",
+            "--oauth-token-url",
+            "https://idp/token",
+            "--oauth-client-id",
+            "cid",
+            "--oauth-client-secret",
+            "${env:CC_SECRET}",
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    post_req = next(r for r in requests_seen if r.method == "POST" and "/servers" in r.url.path)
+    body = json.loads(post_req.content)
+    assert body["auth"] == "oauth_client_credentials"
+    assert body["oauth_token_url"] == "https://idp/token"
+    assert body["oauth_client_id"] == "cid"
+    assert body["oauth_client_secret"] == "${env:CC_SECRET}"
+
+
+def test_add_client_credentials_conflicts_with_oauth(mock_client_factory: MagicMock) -> None:
+    mock_client_factory.return_value = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200)),
+        base_url="http://127.0.0.1:8000",
+    )
+    result = runner.invoke(
+        app,
+        [
+            "add",
+            "weather",
+            "https://example.com/mcp",
+            "--oauth",
+            "--oauth-token-url",
+            "https://idp/token",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "mutually exclusive" in result.output
+
+
+def test_add_client_credentials_partial_options_error(mock_client_factory: MagicMock) -> None:
+    mock_client_factory.return_value = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200)),
+        base_url="http://127.0.0.1:8000",
+    )
+    result = runner.invoke(
+        app,
+        ["add", "weather", "https://example.com/mcp", "--oauth-token-url", "https://idp/token"],
+    )
+    assert result.exit_code == 1
+    assert "--oauth-client-id" in result.output
+
+
+def test_add_client_credentials_rejects_raw_secret(mock_client_factory: MagicMock) -> None:
+    mock_client_factory.return_value = httpx.Client(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200)),
+        base_url="http://127.0.0.1:8000",
+    )
+    result = runner.invoke(
+        app,
+        [
+            "add",
+            "weather",
+            "https://example.com/mcp",
+            "--oauth-token-url",
+            "https://idp/token",
+            "--oauth-client-id",
+            "cid",
+            "--oauth-client-secret",
+            "raw-secret",
+        ],
+    )
+    assert result.exit_code == 1
+    assert "reference" in result.output
+
+
 def test_add_multiple_scopes(mock_client_factory: MagicMock) -> None:
     requests_seen: list[httpx.Request] = []
 

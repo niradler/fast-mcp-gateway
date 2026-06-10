@@ -44,3 +44,20 @@ class AgtAgentOsSettings:
     enable_egress_policy: bool = False
     egress_rules: list[EgressRule] = field(default_factory=list)
     egress_default_action: str = "deny"
+
+    enable_mcp_security_scan: bool = False
+    """Scan every tool definition returned by list-tools for poisoning indicators
+    (hidden instructions, prompt injection, schema abuse, rug pulls).  Opt-in
+    because the scanner emits a sample-rules warning on construction and may
+    produce false positives on benign tool descriptions that contain URLs or
+    long strings."""
+
+    enable_rate_limiting: bool = False
+    """Sliding-window rate limiting keyed by the active group (falls back to
+    ``default_principal`` when no group is set).  Opt-in; has no effect unless
+    ``rate_limit_max_calls`` and ``rate_limit_window_seconds`` are tuned for the
+    deployment."""
+    rate_limit_max_calls: int = 100
+    """Maximum tool calls allowed within a single sliding window."""
+    rate_limit_window_seconds: float = 300.0
+    """Width of the sliding window in seconds."""

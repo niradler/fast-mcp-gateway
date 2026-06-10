@@ -9,10 +9,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from fast_gateway.config import HilConfig
-from fast_gateway.hil.pending import PendingApproval, PendingRegistry
-from fast_gateway.hil.plugin import HumanApprovalPlugin
-from fast_gateway.hil.views import render_detail, render_list, render_result
 from fast_gateway.hooks import ConfirmationContext
+from fast_gateway.plugins.hil.pending import PendingApproval, PendingRegistry
+from fast_gateway.plugins.hil.plugin import HumanApprovalPlugin
+from fast_gateway.plugins.hil.views import render_detail, render_list, render_result
 
 # ---------------------------------------------------------------------------
 # PendingRegistry
@@ -307,3 +307,132 @@ async def test_router_detail_escapes_arguments() -> None:
         resp = client.get(f"/hil/{pending.id}")
         assert "<b>" not in resp.text
         assert "&lt;b&gt;" in resp.text
+
+
+# ---------------------------------------------------------------------------
+# Pluggable notifier
+# ---------------------------------------------------------------------------
+
+
+async def test_custom_notifier_receives_approval_and_url() -> None:
+    seen: list[tuple[str, str]] = []
+
+    async def notify(approval: PendingApproval, url: str) -> None:
+        seen.append((approval.tool_name, url))
+
+    plugin = HumanApprovalPlugin(
+        HilConfig(auto_open_browser=True, timeout_seconds=2.0), notifier=notify
+    )
+    contributions = plugin.contributions(MagicMock())
+    hook = contributions.hooks.confirmation[0]
+    ctx = ConfirmationContext(tool_name="deploy", arguments={}, reason=None)
+
+    async def run_hook() -> bool:
+        return await hook(ctx)
+
+    task: asyncio.Task[bool] = asyncio.create_task(run_hook())
+    await asyncio.sleep(0.01)
+    assert len(seen) == 1
+    tool_name, url = seen[0]
+    assert tool_name == "deploy"
+    pending = plugin._registry.list_pending()
+    assert url.endswith(pending[0].id)
+
+    plugin._registry.resolve(pending[0].id, True)
+    assert await task is True
+
+
+async def test_failing_notifier_still_waits_for_decision() -> None:
+    async def explode(approval: PendingApproval, url: str) -> None:
+        raise RuntimeError("slack is down")
+
+    plugin = HumanApprovalPlugin(HilConfig(timeout_seconds=2.0), notifier=explode)
+    contributions = plugin.contributions(MagicMock())
+    hook = contributions.hooks.confirmation[0]
+    ctx = ConfirmationContext(tool_name="deploy", arguments={}, reason=None)
+
+    async def run_hook() -> bool:
+        return await hook(ctx)
+
+    task: asyncio.Task[bool] = asyncio.create_task(run_hook())
+    await asyncio.sleep(0.01)
+    pending = plugin._registry.list_pending()
+    assert len(pending) == 1
+    plugin._registry.resolve(pending[0].id, True)
+    assert await task is True
+
+
+# ---------------------------------------------------------------------------
+# JSON decision API
+# ---------------------------------------------------------------------------
+
+
+async def test_json_list_pending() -> None:
+    registry = PendingRegistry()
+    approval = registry.create("deploy", {"env": "prod"}, "review")
+    app = _make_test_app(registry)
+    with TestClient(app) as client:
+        resp = client.get("/hil/pending")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body == [
+            {
+                "id": approval.id,
+                "tool_name": "deploy",
+                "arguments": {"env": "prod"},
+                "reason": "review",
+            }
+        ]
+
+
+async def test_json_detail_200_and_404() -> None:
+    registry = PendingRegistry()
+    approval = registry.create("deploy", {}, None)
+    app = _make_test_app(registry)
+    with TestClient(app) as client:
+        ok = client.get(f"/hil/pending/{approval.id}")
+        assert ok.status_code == 200
+        assert ok.json()["tool_name"] == "deploy"
+        missing = client.get("/hil/pending/deadbeef")
+        assert missing.status_code == 404
+
+
+async def test_json_approve_resolves_future() -> None:
+    registry = PendingRegistry()
+    approval = registry.create("deploy", {}, None)
+    app = _make_test_app(registry)
+    with TestClient(app) as client:
+        resp = client.post(f"/hil/pending/{approval.id}/approve")
+        assert resp.status_code == 200
+        assert resp.json() == {"id": approval.id, "tool_name": "deploy", "approved": True}
+    assert await registry.wait(approval.id, wait_timeout=0.1) is True
+
+
+async def test_json_deny_resolves_future() -> None:
+    registry = PendingRegistry()
+    approval = registry.create("deploy", {}, None)
+    app = _make_test_app(registry)
+    with TestClient(app) as client:
+        resp = client.post(f"/hil/pending/{approval.id}/deny")
+        assert resp.status_code == 200
+        assert resp.json()["approved"] is False
+    assert await registry.wait(approval.id, wait_timeout=0.1) is False
+
+
+async def test_json_decide_unknown_returns_404() -> None:
+    registry = PendingRegistry()
+    app = _make_test_app(registry)
+    with TestClient(app) as client:
+        resp = client.post("/hil/pending/deadbeef/approve")
+        assert resp.status_code == 404
+
+
+async def test_json_double_decision_returns_404() -> None:
+    registry = PendingRegistry()
+    approval = registry.create("deploy", {}, None)
+    app = _make_test_app(registry)
+    with TestClient(app) as client:
+        first = client.post(f"/hil/pending/{approval.id}/approve")
+        assert first.status_code == 200
+        second = client.post(f"/hil/pending/{approval.id}/deny")
+        assert second.status_code == 404

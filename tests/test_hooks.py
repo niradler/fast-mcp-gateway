@@ -100,6 +100,109 @@ async def test_continue_passes_through_and_post_hook_transforms() -> None:
 
 
 # ---------------------------------------------------------------------------
+# tool_error seam
+# ---------------------------------------------------------------------------
+
+
+def make_error_recorder() -> tuple[list[tuple[str, Exception]], Any]:
+    seen: list[tuple[str, Exception]] = []
+
+    async def record(context: Any, error: Exception) -> None:
+        seen.append((context.message.name, error))
+
+    return seen, record
+
+
+async def test_tool_error_fires_on_upstream_failure() -> None:
+    seen, record = make_error_recorder()
+
+    async def failing_call_next(context: Any) -> str:
+        raise RuntimeError("upstream exploded")
+
+    middleware = HookMiddleware(Hooks(tool_error=[record]))
+    with pytest.raises(RuntimeError, match="upstream exploded"):
+        await middleware.on_call_tool(make_context(), failing_call_next)
+
+    assert len(seen) == 1
+    assert seen[0][0] == "deploy"
+    assert isinstance(seen[0][1], RuntimeError)
+
+
+async def test_tool_error_fires_on_deny() -> None:
+    seen, record = make_error_recorder()
+
+    async def deny(context: Any) -> ToolCallResult:
+        return ToolCallResult(decision=ToolDecision.DENY, reason="nope")
+
+    middleware = HookMiddleware(Hooks(pre_tool_call=[deny], tool_error=[record]))
+    with pytest.raises(ToolError):
+        await middleware.on_call_tool(make_context(), call_next)
+
+    assert len(seen) == 1
+    assert isinstance(seen[0][1], ToolError)
+
+
+async def test_tool_error_fires_on_rejected_confirmation() -> None:
+    seen, record = make_error_recorder()
+
+    async def reject(ctx: ConfirmationContext) -> bool:
+        return False
+
+    middleware = HookMiddleware(
+        Hooks(pre_tool_call=[require_confirmation], confirmation=[reject], tool_error=[record])
+    )
+    with pytest.raises(ToolError):
+        await middleware.on_call_tool(make_context(), call_next)
+
+    assert len(seen) == 1
+
+
+async def test_tool_error_fires_on_policy_block() -> None:
+    seen, record = make_error_recorder()
+    policy = AccessPolicy()
+    policy.rebuild([make_server_record("svc", deny=["*"])], [])
+
+    middleware = HookMiddleware(Hooks(tool_error=[record]), policy=policy)
+    with pytest.raises(ToolError, match="not permitted"):
+        await middleware.on_call_tool(make_context("svc_anything"), call_next)
+
+    assert len(seen) == 1
+
+
+async def test_tool_error_not_fired_on_success() -> None:
+    seen, record = make_error_recorder()
+    middleware = HookMiddleware(Hooks(tool_error=[record]))
+    result = await middleware.on_call_tool(make_context(), call_next)
+
+    assert result == "called"
+    assert seen == []
+
+
+async def test_failing_tool_error_hook_never_masks_the_error() -> None:
+    async def bad_hook(context: Any, error: Exception) -> None:
+        raise ValueError("hook bug")
+
+    async def failing_call_next(context: Any) -> str:
+        raise RuntimeError("original")
+
+    middleware = HookMiddleware(Hooks(tool_error=[bad_hook]))
+    with pytest.raises(RuntimeError, match="original"):
+        await middleware.on_call_tool(make_context(), failing_call_next)
+
+
+async def test_tool_error_hook_cannot_swallow_the_error() -> None:
+    async def swallow(context: Any, error: Exception) -> None:
+        return None
+
+    async def failing_call_next(context: Any) -> str:
+        raise RuntimeError("still raised")
+
+    middleware = HookMiddleware(Hooks(tool_error=[swallow]))
+    with pytest.raises(RuntimeError, match="still raised"):
+        await middleware.on_call_tool(make_context(), failing_call_next)
+
+
+# ---------------------------------------------------------------------------
 # on_list_tools tests
 # ---------------------------------------------------------------------------
 
@@ -235,3 +338,54 @@ async def test_no_policy_call_tool_unchanged() -> None:
     middleware = HookMiddleware(Hooks())
     result = await middleware.on_call_tool(make_context(name="math_mul"), call_next)
     assert result == "called"
+
+
+# ---------------------------------------------------------------------------
+# connect_error seam (via catalog introspection)
+# ---------------------------------------------------------------------------
+
+
+async def test_connect_error_fires_per_failed_server() -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from fast_gateway.catalog import collect_catalog
+
+    seen: list[tuple[str, Exception]] = []
+
+    async def record(server: ServerRecord, error: Exception) -> None:
+        seen.append((server.name, error))
+
+    servers = [make_server_record("broken"), make_server_record("healthy")]
+
+    async def introspect(server: ServerRecord, hooks: Hooks) -> list[Any]:
+        if server.name == "broken":
+            raise RuntimeError("connection refused")
+        return []
+
+    with patch("fast_gateway.catalog._introspect_server", new=AsyncMock(side_effect=introspect)):
+        _, failed = await collect_catalog(servers, Hooks(connect_error=[record]))
+
+    assert len(seen) == 1
+    assert seen[0][0] == "broken"
+    assert isinstance(seen[0][1], RuntimeError)
+    assert failed == {"broken"}
+
+
+async def test_failing_connect_error_hook_does_not_break_collection() -> None:
+    from unittest.mock import AsyncMock, patch
+
+    from fast_gateway.catalog import collect_catalog
+
+    async def bad_hook(server: ServerRecord, error: Exception) -> None:
+        raise ValueError("hook bug")
+
+    with patch(
+        "fast_gateway.catalog._introspect_server",
+        new=AsyncMock(side_effect=RuntimeError("down")),
+    ):
+        catalog, failed = await collect_catalog(
+            [make_server_record("svc")], Hooks(connect_error=[bad_hook])
+        )
+
+    assert catalog == []
+    assert failed == {"svc"}

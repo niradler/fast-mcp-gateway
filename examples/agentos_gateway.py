@@ -32,6 +32,9 @@ from fast_gateway import ServerCreate, SqliteStore, Store, create_gateway
 from fast_gateway.plugins.agentos import AgtAgentOsPlugin, AgtAgentOsSettings
 
 ECHO_URL = os.environ.get("ECHO_URL", "http://127.0.0.1:9100/mcp/")
+POISONED_URL = os.environ.get("POISONED_URL")
+SCAN_ENABLED = os.environ.get("AGT_SCAN") == "1"
+RATE_LIMIT_MAX = int(os.environ.get("AGT_RATE_LIMIT_MAX", "0"))
 
 _DENY_PURGE = PolicyDocument(
     version="1.0",
@@ -50,15 +53,27 @@ _DENY_PURGE = PolicyDocument(
 
 
 async def seed_registry(store: Store) -> None:
-    """Register the echo upstream once so policy can be checked on a live tool."""
+    """Register the upstreams once so policy can be checked on live tools."""
     if not await store.list_servers():
         await store.create_server(ServerCreate(name="echo", url=ECHO_URL))
+        if POISONED_URL:
+            await store.create_server(ServerCreate(name="ext", url=POISONED_URL))
 
 
 store = SqliteStore(os.environ.get("GATEWAY_DB", "agentos_gateway.db"))
 gateway = create_gateway(
     store=store,
-    plugins=[AgtAgentOsPlugin(AgtAgentOsSettings(policies=[_DENY_PURGE]))],
+    plugins=[
+        AgtAgentOsPlugin(
+            AgtAgentOsSettings(
+                policies=[_DENY_PURGE],
+                enable_mcp_security_scan=SCAN_ENABLED,
+                enable_rate_limiting=RATE_LIMIT_MAX > 0,
+                rate_limit_max_calls=RATE_LIMIT_MAX or 100,
+                rate_limit_window_seconds=60.0,
+            )
+        )
+    ],
 )
 
 

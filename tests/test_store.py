@@ -424,3 +424,100 @@ async def test_migration_idempotent_on_fresh_db(store: SqliteStore) -> None:
     assert col_names_before == col_names_after
     assert "auth" in col_names_after
     assert "oauth_scopes" in col_names_after
+    assert "oauth_token_url" in col_names_after
+    assert "oauth_client_id" in col_names_after
+    assert "oauth_client_secret" in col_names_after
+
+
+def cc_sample(name: str = "machine") -> ServerCreate:
+    return ServerCreate(
+        name=name,
+        url="https://example.com/mcp",
+        auth=ServerAuth.OAUTH_CLIENT_CREDENTIALS,
+        oauth_token_url="https://idp.example.com/token",
+        oauth_client_id="cid",
+        oauth_client_secret="${env:CC_SECRET}",
+    )
+
+
+async def test_client_credentials_fields_roundtrip(store: SqliteStore) -> None:
+    created = await store.create_server(cc_sample())
+    fetched = await store.get_server(created.id)
+    assert fetched is not None
+    assert fetched.auth is ServerAuth.OAUTH_CLIENT_CREDENTIALS
+    assert fetched.oauth_token_url == "https://idp.example.com/token"
+    assert fetched.oauth_client_id == "cid"
+    assert fetched.oauth_client_secret == "${env:CC_SECRET}"
+
+
+async def test_patch_client_credentials_fields(store: SqliteStore) -> None:
+    created = await store.create_server(cc_sample())
+    updated = await store.update_server(
+        created.id, ServerPatch(oauth_client_secret="${file:/run/secret}")
+    )
+    assert updated.oauth_client_secret == "${file:/run/secret}"
+
+
+async def test_patch_to_invalid_cc_config_is_rejected_and_not_persisted(
+    store: SqliteStore,
+) -> None:
+    created = await store.create_server(sample())
+    with pytest.raises(ValueError, match="oauth_token_url"):
+        await store.update_server(created.id, ServerPatch(auth=ServerAuth.OAUTH_CLIENT_CREDENTIALS))
+    fetched = await store.get_server(created.id)
+    assert fetched is not None
+    assert fetched.auth is ServerAuth.NONE
+
+
+# ---------------------------------------------------------------------------
+# Per-server catalog replacement
+# ---------------------------------------------------------------------------
+
+
+async def test_replace_server_catalog_touches_only_that_server(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    fresh = CatalogTool(
+        server_id="s1",
+        namespace="math",
+        name="math_multiply",
+        bare_name="multiply",
+        description="Multiply two numbers.",
+    )
+
+    await store.replace_server_catalog("s1", [fresh])
+
+    names = {t.name for t in await store.list_catalog()}
+    assert "math_multiply" in names
+    assert "math_add" not in names
+    assert "math_subtract" not in names
+    assert "text_upper" in names
+
+
+async def test_replace_server_catalog_empty_drops_rows(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    await store.replace_server_catalog("s1", [])
+    names = {t.name for t in await store.list_catalog()}
+    assert names == {"text_upper"}
+
+
+async def test_replace_server_catalog_rejects_foreign_rows(store: SqliteStore) -> None:
+    foreign = CatalogTool(server_id="s2", namespace="text", name="text_lower", bare_name="lower")
+    with pytest.raises(ValueError, match="belongs to server"):
+        await store.replace_server_catalog("s1", [foreign])
+
+
+async def test_replace_server_catalog_updates_search(store: SqliteStore) -> None:
+    await store.replace_catalog(catalog_sample())
+    fresh = CatalogTool(
+        server_id="s1",
+        namespace="math",
+        name="math_multiply",
+        bare_name="multiply",
+        description="Multiply two numbers together.",
+    )
+    await store.replace_server_catalog("s1", [fresh])
+
+    hits = {t.name for t in await store.search_catalog("multiply")}
+    assert "math_multiply" in hits
+    stale = {t.name for t in await store.search_catalog("add numbers")}
+    assert "math_add" not in stale

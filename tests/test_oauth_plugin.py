@@ -11,12 +11,8 @@ from fastmcp.client.auth import OAuth
 
 from fast_gateway.hooks import ConnectContext, ConnectSettings
 from fast_gateway.models import ServerAuth, ServerRecord, Transport
-from fast_gateway.plugins.oauth import (
-    OAuthPlugin,
-    _NonInteractiveOAuth,
-    build_oauth,
-    default_oauth_token_dir,
-)
+from fast_gateway.plugins.oauth import OAuthPlugin, build_oauth, default_oauth_token_dir
+from fast_gateway.plugins.oauth.plugin import _NonInteractiveOAuth
 
 
 def _server(
