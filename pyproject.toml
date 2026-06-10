@@ -1,6 +1,6 @@
 [project]
 name = "fast-gateway"
-version = "0.0.3"
+version = "0.0.4"
 description = "A lean, FastMCP-based gateway that turns a registry of upstream MCP servers into one governed, namespaced MCP endpoint mounted on FastAPI."
 readme = "README.md"
 license = "MIT"

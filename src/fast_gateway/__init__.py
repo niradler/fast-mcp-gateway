@@ -41,7 +41,7 @@ from fast_gateway.reference import (
 )
 from fast_gateway.store import SqliteStore, Store
 
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 
 __all__ = [
     "ConfirmationContext",
