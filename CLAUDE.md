@@ -45,7 +45,7 @@ If we ever pin back to v2, revert these and set `fastmcp>=2,<3`.
 ## Commands
 
 ```bash
-make install     # uv sync (venv + deps incl. dev group)
+make install     # uv sync --extra cli (venv + deps incl. dev group)
 make check       # lint + format-check + typecheck + test  (CI gate; run before done)
 make test        # pytest
 make format      # ruff format + safe lint fixes
@@ -55,7 +55,7 @@ make build       # sdist + wheel
 
 ## Layout
 
-```
+```text
 src/fast_gateway/
   app.py            # create_gateway() -> Gateway; in-process client/call_tool/list_tools
   hooks.py          # Hooks container + HookMiddleware (on_call_tool / on_list_tools)
