@@ -56,7 +56,13 @@ auth schemes, no namespacing, no central policy, and no way to hide a dangerous 
 - **Groups & group-scoped endpoints** — expose a curated subset of servers/tools at
   `/mcp/g/{group}`, served by the same shared MCP app (no per-group duplication).
 - **Plugins** — bundle hooks, FastMCP middleware, an admin router, ASGI mounts, and
-  meta-tools into one named extension with `setup` / `teardown`.
+  meta-tools into one named extension with `setup` / `teardown`. Five ship in the box:
+  policy, tools REST API, browser HIL, upstream OAuth, and agent-os.
+- **Programmatic tool access** — `gateway.call_tool(...)` / `gateway.list_tools()` /
+  `gateway.client()` drive the gateway in-process through the full governance chain,
+  no HTTP loopback.
+- **Tools REST API** — `ToolsApiPlugin` exposes list / describe / invoke routes so
+  non-MCP clients (dashboards, scripts) can use the governed catalog over plain HTTP.
 - **Optional policy engine** — an `agt` extra wires Microsoft's
   [agent-governance-toolkit](https://github.com/microsoft/agent-governance-toolkit)
   (agent-os) in as a policy plugin.
@@ -377,6 +383,35 @@ callable. These authoring types are top-level exports:
 from fast_gateway import Plugin, PluginContributions, GatewayContext
 ```
 
+### Bundled plugins
+
+Each plugin lives in its own folder under
+[`src/fast_gateway/plugins/`](src/fast_gateway/plugins/) — use them as-is or as
+templates for your own:
+
+| Plugin | Import | What it adds |
+| --- | --- | --- |
+| **policy** | `PolicyPlugin(deny=[...], confirm=[...], audit=True)` | glob-based hard deny, confirmation gating, and audit logging of every call |
+| **tools** | `ToolsApiPlugin()` | REST routes to list / describe / invoke the governed tools (`/admin/tools`) |
+| **hil** | `HumanApprovalPlugin(config)` | browser approval page for calls flagged `REQUIRE_CONFIRMATION` |
+| **oauth** | `OAuthPlugin()` | attaches the cached upstream OAuth credentials at connect time (CLI/daemon mode) |
+| **agentos** | `AgtAgentOsPlugin(settings)` | Microsoft agent-governance-toolkit policy engine (experimental, `agt` extra) |
+
+The Mode-B daemon (`factory.build_app`) wires policy, tools, oauth, and (when enabled)
+hil automatically; in Mode A you pass exactly the ones you want to `create_gateway`:
+
+```python
+from fast_gateway import PolicyPlugin, ToolsApiPlugin, create_gateway, SqliteStore
+
+gateway = create_gateway(
+    store=SqliteStore("gateway.db"),
+    plugins=[
+        PolicyPlugin(deny=["*_delete_*"], confirm=["github_merge_*"]),
+        ToolsApiPlugin(),
+    ],
+)
+```
+
 ### Optional: agent-os plugin (experimental)
 
 > [!WARNING]
@@ -431,6 +466,26 @@ gateway = create_gateway(
 > being renamed/consolidated to `agent-governance-toolkit-core`. The gateway and the
 > plugin system work fully **without** the extra — only this one integration needs it.
 
+## Programmatic tool access
+
+The host application can drive the gateway's tools directly — no HTTP request to
+itself. `Gateway` exposes an **in-process** FastMCP client whose calls still pass the
+full governance chain (hooks, access policy, group scoping, confirmation):
+
+```python
+result = await gateway.call_tool("github_create_issue", {"title": "bug"})
+print(result.data)
+
+tools = await gateway.list_tools(group="analytics")   # same narrowing as /mcp/g/analytics
+
+async with gateway.client() as client:                # batch calls over one session
+    await client.call_tool("math_add", {"a": 1, "b": 2})
+    await client.call_tool("math_add", {"a": 3, "b": 4})
+```
+
+For non-Python (or out-of-process) consumers, `ToolsApiPlugin` exposes the same
+governed surface over REST — see the Admin API table below.
+
 ## Admin API
 
 | Method | Path | Purpose |
@@ -443,6 +498,9 @@ gateway = create_gateway(
 | `GET` / `PATCH` / `DELETE` | `/admin/groups/{id}` | read / update / remove |
 | `PUT` | `/admin/groups/{id}/servers` | set membership |
 | `POST` | `/admin/reload` | rebuild mounts from the store |
+| `GET` | `/admin/tools` | list governed tools (`?group=` to scope) — `ToolsApiPlugin` |
+| `GET` | `/admin/tools/{name}` | full tool schema — `ToolsApiPlugin` |
+| `POST` | `/admin/tools/{name}/call` | invoke a tool through the governance chain — `ToolsApiPlugin` |
 
 CRUD writes to the `Store`; `POST /admin/reload` (or `await gateway.reload()`) rebuilds
 the proxy mounts. There is no live hot-swap in v1 — simple and lean.
@@ -450,7 +508,8 @@ the proxy mounts. There is no live hot-swap in v1 — simple and lean.
 > [!WARNING]
 > The `/admin` API is **unauthenticated by default** and mutates the registry —
 > registering upstreams, rewriting allow/deny lists, injecting connection headers, and
-> triggering reload. The host app **must** protect it. Pass FastAPI dependencies via
+> triggering reload; with `ToolsApiPlugin` it can also **invoke tools**. The host app
+> **must** protect it. Pass FastAPI dependencies via
 > `Gateway.install(app, admin_dependencies=[Depends(require_admin)])` to guard the admin
 > router, and/or place it behind reverse-proxy or network-level auth.
 

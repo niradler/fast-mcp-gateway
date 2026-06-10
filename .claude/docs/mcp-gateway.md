@@ -305,6 +305,32 @@ parallel runs race). Subagents do NOT edit `__init__.py`/`pyproject.toml`/README
 main thread owns those central edits. Each subagent must pass the full gate
 (`ruff`, `mypy --strict`, `tools/check_slop.py`, `pytest`). No inline comments.
 
+## Plugin folders + programmatic access (June 2026 session)
+
+Branch `feat/plugin-folders-and-programmatic-api` (PR opened from this session).
+
+- **Folder-per-plugin restructure:** `plugins/oauth.py` → `plugins/oauth/{__init__,plugin}.py`;
+  `src/fast_gateway/hil/` → `plugins/hil/`. Convention recorded in CLAUDE.md: every plugin
+  is `plugins/<name>/` with `__init__.py` re-exports + `plugin.py`. Five bundled plugins:
+  policy, tools_api, hil, oauth, agentos.
+- **Programmatic in-process access (no HTTP loopback):** `Gateway.client()` returns
+  `fastmcp.Client(self.mcp)`; `Gateway.call_tool(name, args, group=, timeout=)` and
+  `Gateway.list_tools(group=)` are one-shot conveniences. Group scoping works by setting
+  `access.current_group` BEFORE entering the client context (the in-process server task
+  copies the caller's context at `__aenter__`). Tests: `test_gateway_client.py`.
+- **`PolicyPlugin`** (`plugins/policy/`): deny/confirm/audit reference hooks bundled as one
+  plugin. `factory.build_app` now passes it instead of constructing base `Hooks`.
+- **`ToolsApiPlugin`** (`plugins/tools_api/`, name="tools"): REST bridge under
+  `/admin/tools` — GET list (`?group=`), GET `/{name}` schema (404 hides denied), POST
+  `/{name}/call` (errors in-band via `is_error`, mirroring MCP wire semantics; uses
+  `raise_on_error=False`). Wired unconditionally in `build_app`; admin token guards it.
+- **Test gotcha:** holding the gateway lifespan open across an async pytest fixture yield
+  crashes at teardown (anyio cancel scope exits in a different task). Enter the lifespan
+  INSIDE each test via an `asynccontextmanager` helper instead (see `test_tools_api_plugin.py`).
+- Governed-policy-without-upstreams test trick: register servers `enabled=False` (reload
+  skips mounting/introspection but `policy.rebuild` sees ALL servers), then seed the
+  catalog with `store.replace_catalog` AFTER reload.
+
 ## Earlier Next (Milestone 5)
 
 Reference hooks (audit, allow/deny, confirmation), docs, packaging dry-run — do NOT publish.

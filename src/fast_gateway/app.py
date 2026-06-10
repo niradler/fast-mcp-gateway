@@ -11,15 +11,19 @@ from __future__ import annotations
 import contextlib
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
+from typing import Any, cast
 
+import mcp.types as mt
 from fastapi import APIRouter, FastAPI, params
-from fastmcp import FastMCP
+from fastmcp import Client, FastMCP
+from fastmcp.client.client import CallToolResult
+from fastmcp.client.transports import FastMCPTransport
 from fastmcp.server.http import StarletteWithLifespan
 from fastmcp.tools.base import Tool
 from starlette.applications import Starlette
 from starlette.types import Lifespan
 
-from fast_gateway.access import AccessPolicy
+from fast_gateway.access import AccessPolicy, current_group
 from fast_gateway.api.groups import build_groups_router
 from fast_gateway.api.servers import build_servers_router
 from fast_gateway.builder import GatewayBuilder
@@ -59,6 +63,51 @@ class Gateway:
     async def reload(self) -> list[str]:
         """Rebuild proxy mounts from the current registry; return degraded server names."""
         return await self.builder.reload()
+
+    def client(self) -> Client[FastMCPTransport]:
+        """In-process MCP client over the gateway's parent FastMCP server.
+
+        Calls pass the full governance chain (hooks, access policy) with no HTTP
+        round-trip. Use as an async context manager to batch calls over one
+        session; :meth:`call_tool` / :meth:`list_tools` cover one-shot use.
+        Requires the gateway lifespan to be running (mounts built at startup).
+        """
+        return Client(self.mcp)
+
+    async def list_tools(self, *, group: str | None = None) -> list[mt.Tool]:
+        """List the gateway's tools in-process, optionally scoped to *group*.
+
+        ``group`` applies the same membership and allow/deny narrowing as the
+        ``/mcp/g/{group}`` endpoint; ``None`` lists the full governed catalog.
+        """
+        token = current_group.set(group)
+        try:
+            async with self.client() as client:
+                return cast("list[mt.Tool]", await client.list_tools())
+        finally:
+            current_group.reset(token)
+
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        group: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> CallToolResult:
+        """Invoke a gateway tool in-process under the full governance chain.
+
+        ``name`` is the namespaced tool name (``"<server>_<tool>"``); ``group``
+        scopes the call exactly like the ``/mcp/g/{group}`` endpoint. Raises
+        ``ToolError`` when the tool is denied, unknown, or fails upstream.
+        """
+        token = current_group.set(group)
+        try:
+            async with self.client() as client:
+                result = await client.call_tool(name, arguments, timeout=timeout_seconds)
+                return cast("CallToolResult", result)
+        finally:
+            current_group.reset(token)
 
     def install(
         self,

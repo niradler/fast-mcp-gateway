@@ -10,7 +10,6 @@ See ``create_gateway`` for assembling a gateway and mounting it on a FastAPI app
 from fast_gateway.app import Gateway, create_gateway
 from fast_gateway.config import GatewayConfig, HilConfig, LocalPolicy, load_config, load_policy
 from fast_gateway.factory import build_app
-from fast_gateway.hil import HumanApprovalPlugin
 from fast_gateway.hooks import (
     ConfirmationContext,
     ConnectContext,
@@ -30,7 +29,10 @@ from fast_gateway.models import (
     Transport,
 )
 from fast_gateway.plugins import GatewayContext, Plugin, PluginContributions
+from fast_gateway.plugins.hil import HumanApprovalPlugin
 from fast_gateway.plugins.oauth import OAuthPlugin
+from fast_gateway.plugins.policy import PolicyPlugin
+from fast_gateway.plugins.tools_api import ToolsApiPlugin
 from fast_gateway.reference import audit_hook, confirm_hook, deny_hook
 from fast_gateway.store import SqliteStore, Store
 
@@ -53,6 +55,7 @@ __all__ = [
     "OAuthPlugin",
     "Plugin",
     "PluginContributions",
+    "PolicyPlugin",
     "ServerAuth",
     "ServerCreate",
     "ServerPatch",
@@ -61,6 +64,7 @@ __all__ = [
     "Store",
     "ToolCallResult",
     "ToolDecision",
+    "ToolsApiPlugin",
     "Transport",
     "__version__",
     "audit_hook",

@@ -9,12 +9,12 @@ from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
 from fast_gateway.config import HilConfig
-from fast_gateway.hil.pending import PendingRegistry
-from fast_gateway.hil.views import render_detail, render_list, render_result
 from fast_gateway.hooks import ConfirmationContext, Hooks
 from fast_gateway.plugins import GatewayContext, PluginContributions
+from fast_gateway.plugins.hil.pending import PendingRegistry
+from fast_gateway.plugins.hil.views import render_detail, render_list, render_result
 
-_logger = logging.getLogger("fast_gateway.hil")
+_logger = logging.getLogger("fast_gateway.plugins.hil")
 
 
 class HumanApprovalPlugin:

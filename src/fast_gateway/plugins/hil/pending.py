@@ -9,7 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-_logger = logging.getLogger("fast_gateway.hil")
+_logger = logging.getLogger("fast_gateway.plugins.hil")
 
 
 class PendingApproval(BaseModel):

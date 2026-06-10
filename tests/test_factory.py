@@ -104,6 +104,13 @@ async def test_hil_plugin_mounts_admin_route(tmp_path: Path) -> None:
             assert r.status_code == 200
 
 
+async def test_tools_api_plugin_wired_in_build_app(client: httpx.AsyncClient) -> None:
+    r = await client.get("/admin/tools")
+    assert r.status_code == 200
+    names = {t["name"] for t in r.json()}
+    assert {"search_tools", "describe_tool"} <= names
+
+
 async def test_oauth_plugin_wired_in_build_app(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

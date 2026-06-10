@@ -9,10 +9,10 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from fast_gateway.config import HilConfig
-from fast_gateway.hil.pending import PendingApproval, PendingRegistry
-from fast_gateway.hil.plugin import HumanApprovalPlugin
-from fast_gateway.hil.views import render_detail, render_list, render_result
 from fast_gateway.hooks import ConfirmationContext
+from fast_gateway.plugins.hil.pending import PendingApproval, PendingRegistry
+from fast_gateway.plugins.hil.plugin import HumanApprovalPlugin
+from fast_gateway.plugins.hil.views import render_detail, render_list, render_result
 
 # ---------------------------------------------------------------------------
 # PendingRegistry
