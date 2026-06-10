@@ -9,7 +9,11 @@ Mode-B gateway as real uvicorn servers. Then proves end-to-end that:
 - ``auth=oauth_client_credentials`` fetches a token headlessly, attaches it, and
   caches it across calls,
 - an unresolvable secret ref fails loudly instead of sending the placeholder,
-- a confirmation-gated tool call can be approved through the JSON decision API.
+- a confirmation-gated tool call can be approved or denied through the JSON
+  decision API, with denials landing in the failure audit trail (``tool_error``),
+- a failing upstream introspection fires ``connect_error`` (audit log entry),
+- the daemon boots in milliseconds with a dead upstream registered
+  (``startup_catalog="background"``).
 
 Run::
 
@@ -20,9 +24,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs
@@ -36,9 +42,12 @@ from fastmcp import FastMCP
 
 from fast_gateway.config import GatewayConfig
 from fast_gateway.factory import build_app
+from fast_gateway.models import ServerCreate
+from fast_gateway.store import SqliteStore
 
 UPSTREAM_PORT = 9103
 GATEWAY_PORT = 8004
+STARTUP_PORT = 8005
 STATIC_KEY = "static-key-9000"
 CC_CLIENT_ID = "validator-client"
 CC_CLIENT_SECRET = "validator-cc-secret"
@@ -52,6 +61,17 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     print(f"  [{'PASS' if ok else 'FAIL'}] {name}" + (f" - {detail}" if detail else ""))
     if not ok:
         FAILURES.append(name)
+
+
+class LogCapture(logging.Handler):
+    """Collects log messages so the script can assert on the in-process audit trail."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
 
 
 def build_upstream(issued: set[str]) -> Any:
@@ -132,7 +152,7 @@ async def start(server: uvicorn.Server, probe_url: str) -> asyncio.Task[None]:
     raise RuntimeError(f"Server at {probe_url} did not come up.")
 
 
-async def run_checks(client: httpx.AsyncClient, issued: set[str]) -> None:
+async def run_checks(client: httpx.AsyncClient, issued: set[str], audit: LogCapture) -> None:
     upstream_url = f"http://127.0.0.1:{UPSTREAM_PORT}/mcp/"
 
     print("\n## Secret-ref header auth (static bearer / API key)")
@@ -288,11 +308,96 @@ async def run_checks(client: httpx.AsyncClient, issued: set[str]) -> None:
     second = await client.post(f"/admin/hil/pending/{approval_id}/approve")
     check("double-decide returns 404", second.status_code == 404)
 
+    print("\n## Failure audit trail (tool_error / connect_error hooks)")
+    denied_task = asyncio.create_task(
+        client.post(
+            "/admin/tools/machine_delete_item/call",
+            json={"arguments": {"item": "blocked"}},
+            timeout=60,
+        )
+    )
+    deny_id = ""
+    for _ in range(100):
+        listing = (await client.get("/admin/hil/pending")).json()
+        if listing:
+            deny_id = listing[0]["id"]
+            break
+        await asyncio.sleep(0.1)
+    await client.post(f"/admin/hil/pending/{deny_id}/deny")
+    denied_result = (await denied_task).json()
+    check(
+        "denied call reported in-band",
+        denied_result.get("is_error") is True,
+        str(denied_result.get("content"))[:80],
+    )
+    check(
+        "tool_error fired: denial in the failure audit log",
+        any("tool call failed: machine_delete_item" in m for m in audit.messages),
+        f"{len(audit.messages)} audit messages",
+    )
+
+    dead = await client.post(
+        "/admin/servers", json={"name": "deadref", "url": "http://127.0.0.1:1/mcp/"}
+    )
+    dead_id = dead.json()["id"]
+    refreshed = await client.post(f"/admin/servers/{dead_id}/refresh")
+    check(
+        "refresh of dead upstream reports degraded",
+        refreshed.status_code == 200 and refreshed.json().get("degraded") is True,
+        refreshed.text[:80],
+    )
+    check(
+        "connect_error fired: failure in the connect audit log",
+        any("upstream connect failed: deadref" in m for m in audit.messages),
+    )
+    await client.delete(f"/admin/servers/{dead_id}")
+
+
+async def check_startup_background() -> None:
+    """Boot a second gateway whose registry already holds a hanging upstream.
+
+    With ``startup_catalog="background"`` (the daemon default) the lifespan must not
+    block on introspecting it — boot stays fast and the admin API serves immediately.
+    """
+    print("\n## Background startup with a dead upstream registered")
+    db = Path(tempfile.mkdtemp()) / "validate_startup.db"
+    store = SqliteStore(str(db))
+    await store.initialize()
+    await store.create_server(ServerCreate(name="unreachable", url="http://10.255.255.1:81/mcp/"))
+    await store.close()
+    config = GatewayConfig.model_validate(
+        {"db": str(db), "host": "127.0.0.1", "port": STARTUP_PORT, "hil": {"enabled": False}}
+    )
+    server = uvicorn.Server(
+        uvicorn.Config(build_app(config), host="127.0.0.1", port=STARTUP_PORT, log_level="warning")
+    )
+    started = time.perf_counter()
+    task = await start(server, f"http://127.0.0.1:{STARTUP_PORT}/docs")
+    boot_seconds = time.perf_counter() - started
+    try:
+        check(
+            "boot does not block on the hanging upstream (< 5s)",
+            boot_seconds < 5.0,
+            f"{boot_seconds:.2f}s",
+        )
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{STARTUP_PORT}", timeout=10
+        ) as client:
+            tools = await client.get("/admin/tools")
+            check("admin API serves immediately after boot", tools.status_code == 200)
+    finally:
+        server.should_exit = True
+        await asyncio.gather(task, return_exceptions=True)
+
 
 async def main() -> int:
     os.environ["VALIDATE_STATIC_KEY"] = STATIC_KEY
     os.environ["VALIDATE_CC_SECRET"] = CC_CLIENT_SECRET
     os.environ.pop("VALIDATE_MISSING_VAR_XYZ", None)
+
+    audit = LogCapture()
+    logging.getLogger("fast_gateway.reference").addHandler(audit)
+    logging.getLogger("fast_gateway.catalog").setLevel(logging.ERROR)
 
     issued: set[str] = set()
     db = Path(tempfile.mkdtemp()) / "validate_upstream_auth.db"
@@ -319,11 +424,13 @@ async def main() -> int:
         async with httpx.AsyncClient(
             base_url=f"http://127.0.0.1:{GATEWAY_PORT}", timeout=30
         ) as client:
-            await run_checks(client, issued)
+            await run_checks(client, issued, audit)
     finally:
         gateway.should_exit = True
         upstream.should_exit = True
         await asyncio.gather(gateway_task, upstream_task, return_exceptions=True)
+
+    await check_startup_background()
 
     print(
         f"\n{'=' * 60}\nUPSTREAM AUTH SUMMARY: {TOTAL - len(FAILURES)}/{TOTAL} passed\n{'=' * 60}"
