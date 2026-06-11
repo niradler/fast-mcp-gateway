@@ -56,7 +56,7 @@ async def _governed_gateway() -> Gateway:
         ServerCreate(name="text", url="https://text.example.com/mcp", enabled=False)
     )
     await store.create_group(GroupCreate(name="analytics", member_server_ids=[math.id]))
-    gateway = create_gateway(store)
+    gateway = create_gateway(store, list_mode="all")
     await gateway.reload()
     await store.replace_catalog(_catalog())
     return gateway
@@ -99,6 +99,37 @@ async def test_call_tool_outside_group_is_rejected() -> None:
     gateway = await _governed_gateway()
     with pytest.raises(ToolError, match="not permitted"):
         await gateway.call_tool("text_upper", {"value": "hi"}, group="analytics")
+
+
+async def test_meta_mode_is_the_default_listing() -> None:
+    """Without list_mode='all' the catalog stays hidden; only meta-tools list."""
+    store = SqliteStore(":memory:")
+    await store.initialize()
+    _OPEN_STORES.append(store)
+    await store.create_server(
+        ServerCreate(name="math", url="https://math.example.com/mcp", enabled=False)
+    )
+    gateway = create_gateway(store)
+    await gateway.reload()
+    await store.replace_catalog(_catalog())
+    names = {t.name for t in await gateway.list_tools()}
+    assert names == {"search_tools", "describe_tool", "invoke_tool"}
+
+
+async def test_invoke_tool_enforces_server_policy() -> None:
+    """invoke_tool routes through the same governance: a denied tool stays denied."""
+    gateway = await _governed_gateway()
+    with pytest.raises(ToolError, match="not permitted"):
+        await gateway.call_tool("invoke_tool", {"name": "math_delete_all", "arguments": {}})
+
+
+async def test_invoke_tool_enforces_group_scope() -> None:
+    """invoke_tool honours the request's group, even through the nested dispatch."""
+    gateway = await _governed_gateway()
+    with pytest.raises(ToolError, match="not permitted"):
+        await gateway.call_tool(
+            "invoke_tool", {"name": "text_upper", "arguments": {}}, group="analytics"
+        )
 
 
 async def test_client_batches_calls_over_one_session() -> None:

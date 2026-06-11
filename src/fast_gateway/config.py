@@ -79,6 +79,24 @@ class GatewayConfig(BaseModel):
             "(the pre-0.0.4 behavior); 'skip' defers to an explicit /reload."
         ),
     )
+    list_mode: Literal["all", "meta"] = Field(
+        default="meta",
+        description=(
+            "What the MCP tools/list returns. 'meta' (default) exposes only the gateway's "
+            "meta-tools (search_tools / describe_tool / invoke_tool) so the listing stays "
+            "small no matter how many upstreams are registered — every tool is still "
+            "callable by name and discoverable via search. 'all' lists the full upstream "
+            "catalog. The REST tools API always shows the full catalog regardless."
+        ),
+    )
+    header_vars: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Map incoming request headers (case-insensitive) to ${var:NAME} runtime "
+            'variables, e.g. {"X-User-Token": "user_token"} lets a static upstream '
+            "header use 'Bearer ${var:user_token}', resolved per request at connect time."
+        ),
+    )
     policy: LocalPolicy = Field(default_factory=LocalPolicy)
     hil: HilConfig = Field(default_factory=HilConfig)
 
@@ -152,6 +170,8 @@ _DEFAULT_CONFIG_JSON: dict[str, object] = {
     "policy_file": None,
     "oauth_token_dir": None,
     "startup_catalog": "background",
+    "list_mode": "meta",
+    "header_vars": {},
     "policy": {
         "deny": [],
         "confirm": ["*_delete_*", "*_write_*", "*_purge_*", "*_remove_*"],

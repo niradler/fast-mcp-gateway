@@ -64,6 +64,8 @@ def build_app(config: GatewayConfig) -> FastAPI:
         plugins=plugins,
         name=config.name,
         startup_catalog=config.startup_catalog,
+        list_mode=config.list_mode,
+        header_vars=config.header_vars,
     )
 
     app = FastAPI(title=config.name, lifespan=gateway.lifespan)

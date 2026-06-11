@@ -41,7 +41,7 @@ async def _gateway() -> Gateway:
     )
     await store.create_group(GroupCreate(name="only_math", member_server_ids=[math.id]))
     await store.create_group(GroupCreate(name="only_text", member_server_ids=[text.id]))
-    gateway = create_gateway(store)
+    gateway = create_gateway(store, list_mode="all")
     await gateway.reload()
     await store.replace_catalog(
         [
