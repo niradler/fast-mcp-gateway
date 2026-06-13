@@ -15,7 +15,7 @@ from fastapi import APIRouter, HTTPException, status
 from fastmcp import Client, FastMCP
 from pydantic import BaseModel, Field
 
-from fast_gateway.access import current_group
+from fast_gateway.access import current_group, list_full_catalog
 from fast_gateway.plugins import GatewayContext, PluginContributions
 
 
@@ -69,12 +69,20 @@ class ToolsApiPlugin:
 
 
 async def _scoped_tools(mcp: FastMCP, group: str | None) -> list[mt.Tool]:
-    token = current_group.set(group)
+    """List tools for the REST surface: always the full governed catalog.
+
+    This discovery API is meant to show every available tool (a dashboard), so it
+    opts out of ``list_mode='meta'`` hiding via ``list_full_catalog`` while keeping
+    the access-policy and group narrowing applied by the middleware.
+    """
+    group_token = current_group.set(group)
+    full_token = list_full_catalog.set(True)
     try:
         async with Client(mcp) as client:
             return cast("list[mt.Tool]", await client.list_tools())
     finally:
-        current_group.reset(token)
+        list_full_catalog.reset(full_token)
+        current_group.reset(group_token)
 
 
 def _to_detail(tool: mt.Tool) -> ToolDetail:

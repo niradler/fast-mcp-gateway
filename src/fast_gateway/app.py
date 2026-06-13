@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
@@ -23,22 +23,24 @@ from fastmcp.client.transports import FastMCPTransport
 from fastmcp.server.http import StarletteWithLifespan
 from fastmcp.tools.base import Tool
 from starlette.applications import Starlette
-from starlette.types import Lifespan
+from starlette.types import ASGIApp, Lifespan
 
-from fast_gateway.access import AccessPolicy, current_group
+from fast_gateway.access import AccessPolicy, current_group, list_full_catalog
 from fast_gateway.api.groups import build_groups_router
 from fast_gateway.api.servers import build_servers_router
 from fast_gateway.builder import GatewayBuilder
 from fast_gateway.catalog import catalog_tool_to_fastmcp
 from fast_gateway.hooks import HookMiddleware, Hooks, merge_hooks
 from fast_gateway.plugins import GatewayContext, Plugin
-from fast_gateway.routing import GroupDispatch
+from fast_gateway.routing import GroupDispatch, RuntimeVarMiddleware
 from fast_gateway.search import register_search_tools
+from fast_gateway.secret_refs import runtime_vars
 from fast_gateway.store.base import Store
 
 logger = logging.getLogger("fast_gateway.app")
 
 StartupCatalog = Literal["refresh", "background", "skip"]
+ListMode = Literal["all", "meta"]
 
 
 @dataclass
@@ -56,6 +58,9 @@ class Gateway:
     builder: GatewayBuilder
     _lifespan: Lifespan[Starlette]
     _transport_path: str
+    _request_app: ASGIApp
+    """The ASGI app mounted for requests — ``mcp_app`` optionally wrapped in
+    :class:`RuntimeVarMiddleware`. ``mcp_app`` itself still owns the lifespan."""
     startup_catalog_task: asyncio.Task[list[str]] | None = None
     """The in-flight startup catalog refresh when ``startup_catalog="background"``.
 
@@ -86,16 +91,20 @@ class Gateway:
         """
         return Client(self.mcp)
 
-    async def list_tools(self, *, group: str | None = None) -> list[mt.Tool]:
+    async def list_tools(
+        self, *, group: str | None = None, variables: Mapping[str, str] | None = None
+    ) -> list[mt.Tool]:
         """List the gateway's tools in-process, optionally scoped to *group*.
 
         ``group`` applies the same membership and allow/deny narrowing as the
         ``/mcp/g/{group}`` endpoint; ``None`` lists the full governed catalog.
+        ``variables`` binds ``${var:NAME}`` runtime variables for the call.
         """
         token = current_group.set(group)
         try:
-            async with self.client() as client:
-                return cast("list[mt.Tool]", await client.list_tools())
+            with runtime_vars(variables or {}):
+                async with self.client() as client:
+                    return cast("list[mt.Tool]", await client.list_tools())
         finally:
             current_group.reset(token)
 
@@ -106,18 +115,21 @@ class Gateway:
         *,
         group: str | None = None,
         timeout_seconds: float | None = None,
+        variables: Mapping[str, str] | None = None,
     ) -> CallToolResult:
         """Invoke a gateway tool in-process under the full governance chain.
 
-        ``name`` is the namespaced tool name (``"<server>_<tool>"``); ``group``
-        scopes the call exactly like the ``/mcp/g/{group}`` endpoint. Raises
-        ``ToolError`` when the tool is denied, unknown, or fails upstream.
+        ``name`` is the namespaced tool name (``"<server>_<tool>"``); ``group`` scopes
+        the call like ``/mcp/g/{group}``; ``variables`` binds ``${var:NAME}`` values
+        resolved into upstream headers at connect time. Raises ``ToolError`` when the
+        tool is denied, unknown, or fails upstream.
         """
         token = current_group.set(group)
         try:
-            async with self.client() as client:
-                result = await client.call_tool(name, arguments, timeout=timeout_seconds)
-                return cast("CallToolResult", result)
+            with runtime_vars(variables or {}):
+                async with self.client() as client:
+                    result = await client.call_tool(name, arguments, timeout=timeout_seconds)
+                    return cast("CallToolResult", result)
         finally:
             current_group.reset(token)
 
@@ -138,8 +150,8 @@ class Gateway:
         """
         app.include_router(self.admin_router, prefix=admin_prefix, dependencies=admin_dependencies)
         group_mount = f"{mcp_path}/{group_segment}"
-        app.mount(group_mount, GroupDispatch(self.mcp_app, self._transport_path))
-        app.mount(mcp_path, self.mcp_app)
+        app.mount(group_mount, GroupDispatch(self._request_app, self._transport_path))
+        app.mount(mcp_path, self._request_app)
 
 
 def create_gateway(
@@ -150,13 +162,15 @@ def create_gateway(
     name: str = "MCP Gateway",
     transport_path: str = "/",
     startup_catalog: StartupCatalog = "refresh",
+    list_mode: ListMode = "meta",
+    header_vars: Mapping[str, str] | None = None,
 ) -> Gateway:
     """Build a :class:`Gateway` over ``store`` with the given ``hooks`` and ``plugins``.
 
-    Wires hook middleware, meta-tools, and admin router; merges plugin contributions
-    in registration order; drives plugin ``setup``/``teardown`` from the lifespan.
-    ``startup_catalog``: ``"refresh"`` blocks startup on upstream introspection,
-    ``"background"`` serves immediately and refreshes in a task, ``"skip"`` defers.
+    Wires hook middleware, meta-tools, and admin router; merges plugins and drives their
+    ``setup``/``teardown``. ``startup_catalog`` times introspection; ``list_mode`` defaults
+    to ``"meta"`` (only meta-tools listed — upstreams stay callable/searchable) or ``"all"``
+    (full catalog); ``header_vars`` maps request headers to ``${var:NAME}`` runtime vars.
     """
     base_hooks = hooks or Hooks()
     policy = AccessPolicy()
@@ -171,6 +185,8 @@ def create_gateway(
 
     async def _catalog_tools() -> Sequence[Tool]:
         local = await mcp.local_provider.list_tools()
+        if list_mode == "meta" and not list_full_catalog.get():
+            return local
         persisted = [catalog_tool_to_fastmcp(t) for t in await store.list_catalog()]
         return [*local, *persisted]
 
@@ -194,6 +210,10 @@ def create_gateway(
     for c in contributions:
         for path, sub_app in c.mounts:
             mcp_app.mount(path, sub_app)
+
+    request_app: ASGIApp = mcp_app
+    if header_vars:
+        request_app = RuntimeVarMiddleware(mcp_app, header_vars)
 
     async def _background_refresh() -> list[str]:
         degraded = await builder.refresh_catalog()
@@ -243,6 +263,7 @@ def create_gateway(
         builder=builder,
         _lifespan=lifespan,
         _transport_path=transport_path,
+        _request_app=request_app,
     )
     return gateway
 

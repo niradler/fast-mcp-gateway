@@ -30,6 +30,14 @@ class ConnectContext(BaseModel):
     """Passed to ``pre_mcp_connect`` hooks before opening an upstream session."""
 
     server: ServerRecord
+    variables: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Runtime variables bound for this request scope (the ``${var:NAME}`` values, "
+            "e.g. lifted from incoming request headers). A read-only snapshot a hook can "
+            "consult; static headers referencing them are already resolved by connect time."
+        ),
+    )
 
 
 class ConnectSettings(BaseModel):

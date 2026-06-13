@@ -18,6 +18,13 @@ from fast_gateway.models import GroupRecord, ServerRecord
 
 current_group: ContextVar[str | None] = ContextVar("fast_gateway_current_group", default=None)
 
+list_full_catalog: ContextVar[bool] = ContextVar("fast_gateway_list_full_catalog", default=False)
+"""Force ``tools/list`` to return the full upstream catalog even under ``list_mode='meta'``.
+
+The meta listing mode hides upstream tools from the agent-facing MCP endpoint so the
+catalog stays small. Discovery surfaces that genuinely want the whole catalog (the REST
+tools API) set this for the duration of their listing call to opt out of that hiding."""
+
 
 @dataclass
 class _ServerRules:
