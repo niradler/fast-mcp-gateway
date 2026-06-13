@@ -1,8 +1,8 @@
 """Builds the per-server async client factory that FastMCP's proxy uses to connect.
 
 Runs ``pre_mcp_connect`` hooks; hook headers layer over static ones (dynamic wins).
-Static header values may embed ``${env:}``/``${file:}``/``${var:}`` references resolved
-here at connect time, so credentials never live in the registry. ``ConnectSettings.auth``
+Static header values may embed ``${env:}``/``${file:}`` secret references, resolved
+here at connect time so credentials never live in the registry. ``ConnectSettings.auth``
 carries an httpx-compatible auth provider; the last hook to set one wins.
 """
 
@@ -17,7 +17,7 @@ from fastmcp.server.providers.proxy import ProxyClient
 
 from fast_gateway.hooks import ConnectContext, Hooks
 from fast_gateway.models import ServerRecord, Transport
-from fast_gateway.secret_refs import get_runtime_vars, resolve_header_refs
+from fast_gateway.secret_refs import resolve_header_refs
 
 ClientFactory = Callable[[], Awaitable[ProxyClient[Any]]]
 
@@ -27,15 +27,15 @@ async def resolve_connect_settings(
 ) -> tuple[dict[str, str], float, Any | None]:
     """Run ``pre_mcp_connect`` hooks and return the effective headers, timeout, and auth.
 
-    Headers start from the server's static headers — with ``${env:}``/``${file:}``/
-    ``${var:}`` refs resolved against the process env, files, and request-scoped runtime
-    variables — and each hook's headers layer on top, passed through verbatim. A hook may
-    override the timeout or supply an auth provider; the last hook to set each wins.
+    Headers start from the server's static headers — with ``${env:}``/``${file:}``
+    secret refs resolved — and each hook's headers layer on top, passed through
+    verbatim. A hook may override the timeout or supply an auth provider; the last
+    hook to set each wins.
     """
     headers = resolve_header_refs(server.static_headers)
     timeout = server.timeout_seconds
     auth: Any | None = None
-    context = ConnectContext(server=server, variables=dict(get_runtime_vars()))
+    context = ConnectContext(server=server)
 
     for hook in hooks.pre_mcp_connect:
         settings = await hook(context)

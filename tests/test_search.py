@@ -174,55 +174,14 @@ async def test_describe_denied_tool_reads_as_not_found() -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_tools_list_all_mode_merges_meta_tools_with_snapshot() -> None:
-    """With list_mode='all' the meta-tools stay discoverable alongside the snapshot."""
+async def test_tools_list_merges_meta_tools_with_snapshot() -> None:
+    """The gateway's own meta-tools stay discoverable alongside the upstream snapshot."""
     store = SqliteStore(":memory:")
     await store.initialize()
     await store.replace_catalog(_catalog())
     _OPEN_STORES.append(store)
-    gateway = create_gateway(store, list_mode="all")
+    gateway = create_gateway(store)
     async with Client(gateway.mcp) as client:
         names = {t.name for t in await client.list_tools()}
-    assert {"search_tools", "describe_tool", "invoke_tool"} <= names
+    assert {"search_tools", "describe_tool"} <= names
     assert {"math_add", "math_delete_all", "text_upper"} <= names
-
-
-async def test_tools_list_meta_mode_hides_upstream_tools() -> None:
-    """The default meta mode lists only the gateway's meta-tools, no upstream fleet."""
-    store = SqliteStore(":memory:")
-    await store.initialize()
-    await store.replace_catalog(_catalog())
-    _OPEN_STORES.append(store)
-    gateway = create_gateway(store)
-    async with Client(gateway.mcp) as client:
-        names = {t.name for t in await client.list_tools()}
-    assert names == {"search_tools", "describe_tool", "invoke_tool"}
-
-
-async def test_invoke_tool_dispatches_to_a_local_tool() -> None:
-    """invoke_tool routes to any gateway tool by name; here a live local tool."""
-    store = SqliteStore(":memory:")
-    await store.initialize()
-    _OPEN_STORES.append(store)
-    gateway = create_gateway(store)
-
-    @gateway.mcp.tool
-    def echo(value: str) -> str:
-        return value
-
-    async with Client(gateway.mcp) as client:
-        result = await client.call_tool(
-            "invoke_tool", {"name": "echo", "arguments": {"value": "hi"}}
-        )
-    assert [block.text for block in result.content] == ["hi"]
-    assert result.data == {"result": "hi"}
-
-
-async def test_invoke_tool_unknown_tool_errors() -> None:
-    store = SqliteStore(":memory:")
-    await store.initialize()
-    _OPEN_STORES.append(store)
-    gateway = create_gateway(store)
-    async with Client(gateway.mcp) as client:
-        with pytest.raises(ToolError):
-            await client.call_tool("invoke_tool", {"name": "nope", "arguments": {}})

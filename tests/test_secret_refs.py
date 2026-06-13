@@ -12,10 +12,8 @@ from fast_gateway.models import ServerRecord
 from fast_gateway.secret_refs import (
     SecretResolutionError,
     contains_secret_ref,
-    get_runtime_vars,
     resolve_header_refs,
     resolve_secret_refs,
-    runtime_vars,
 )
 
 # ---------------------------------------------------------------------------
@@ -65,58 +63,8 @@ def test_missing_file_raises(tmp_path: Path) -> None:
 def test_contains_secret_ref() -> None:
     assert contains_secret_ref("Bearer ${env:X}") is True
     assert contains_secret_ref("${file:/run/secret}") is True
-    assert contains_secret_ref("Bearer ${var:user_token}") is True
     assert contains_secret_ref("Bearer raw-token") is False
     assert contains_secret_ref("${unknown:X}") is False
-
-
-# ---------------------------------------------------------------------------
-# ${var:NAME} runtime variables
-# ---------------------------------------------------------------------------
-
-
-def test_var_ref_resolves_within_scope() -> None:
-    with runtime_vars({"user_token": "t-123"}):
-        assert resolve_secret_refs("Bearer ${var:user_token}") == "Bearer t-123"
-
-
-def test_var_ref_unbound_raises() -> None:
-    with pytest.raises(SecretResolutionError, match="user_token"):
-        resolve_secret_refs("Bearer ${var:user_token}")
-
-
-def test_runtime_vars_are_scoped_and_restored() -> None:
-    assert get_runtime_vars() == {}
-    with runtime_vars({"a": "1"}):
-        assert get_runtime_vars() == {"a": "1"}
-    assert get_runtime_vars() == {}
-
-
-def test_runtime_vars_nest_additively() -> None:
-    with runtime_vars({"a": "1"}):
-        with runtime_vars({"b": "2"}):
-            assert resolve_secret_refs("${var:a}-${var:b}") == "1-2"
-        assert get_runtime_vars() == {"a": "1"}
-
-
-async def test_var_ref_resolved_at_connect_time() -> None:
-    srv = record({"Authorization": "Bearer ${var:user_token}"})
-    with runtime_vars({"user_token": "tok-9"}):
-        headers, _, _ = await resolve_connect_settings(srv, Hooks())
-    assert headers == {"Authorization": "Bearer tok-9"}
-
-
-async def test_connect_context_exposes_runtime_vars_to_hooks() -> None:
-    seen: dict[str, str] = {}
-
-    async def capture(ctx: ConnectContext) -> ConnectSettings | None:
-        seen.update(ctx.variables)
-        return None
-
-    srv = record({})
-    with runtime_vars({"tenant": "acme"}):
-        await resolve_connect_settings(srv, Hooks(pre_mcp_connect=[capture]))
-    assert seen == {"tenant": "acme"}
 
 
 def test_resolve_header_refs(monkeypatch: pytest.MonkeyPatch) -> None:

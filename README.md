@@ -48,14 +48,6 @@ auth schemes, no namespacing, no central policy, and no way to hide a dangerous 
   protocol.
 - **Namespaced proxying** — each enabled server is mounted under its `name` as a
   prefix; `reload()` rebuilds the mounts from the registry.
-- **Meta-tool listing (default)** — `tools/list` exposes only the gateway's meta-tools
-  (`search_tools` / `describe_tool` / `invoke_tool`) so the catalog stays small no matter
-  how many upstreams are mounted; every tool is still callable by name and findable via
-  search. Set `list_mode="all"` (config `list_mode`) to list the full namespaced catalog.
-- **Runtime variable injection** — header values support `${var:NAME}` references resolved
-  per request at connect time, alongside `${env:}`/`${file:}`. Bind them from incoming
-  request headers (`header_vars`), programmatically (`variables=`), or read them in a
-  `pre_mcp_connect` hook via `ConnectContext.variables`.
 - **Five hook seams** — `pre_mcp_connect`, `pre_list_tools`, `pre_tool_call`,
   `confirmation`, `post_tool_call`. Auth, policy, HIL, redaction, audit, and cost
   limits are all plain async functions.
@@ -249,34 +241,6 @@ fast-gateway add billing https://billing.example.com/mcp \
 
 An unresolvable reference fails loudly at connect time (visible via
 `POST /admin/servers/{id}/test`) instead of sending the literal placeholder upstream.
-
-### Per-request values: runtime variables (`${var:NAME}`)
-
-When the value isn't fixed for the process but arrives **with each request** — a
-caller's token, a tenant id — use a `${var:NAME}` reference. It resolves at connect
-time from variables bound for the current request scope:
-
-```python
-# Embed mode: lift the incoming `X-User-Token` header into ${var:user_token}
-gateway = create_gateway(store, header_vars={"X-User-Token": "user_token"})
-# register a server with: static_headers={"Authorization": "Bearer ${var:user_token}"}
-
-# …or bind variables programmatically for an in-process call:
-await gateway.call_tool("github_whoami", {}, variables={"user_token": "tok-123"})
-```
-
-In Mode B, map headers in `gateway.json`: `"header_vars": {"X-User-Token": "user_token"}`.
-A `pre_mcp_connect` hook can read the bound values via `ConnectContext.variables`. An
-unbound `${var:...}` fails loudly at connect time, exactly like `${env:}`/`${file:}`.
-
-> **Discovery note.** An upstream whose `static_headers` reference `${var:NAME}` cannot be
-> introspected at startup/reload — there is no request scope then, so the variable is
-> unbound and the connection fails. Such a server contributes no tools to the catalog
-> snapshot, so under the default `list_mode="meta"` its tools are **callable** by exact
-> name (directly or via `invoke_tool`) but **not discoverable** through `search_tools` /
-> `describe_tool`. If you need those tools discoverable, give the server a process-fixed
-> credential (`${env:}`/`${file:}`) for introspection, or list it under a group/namespace
-> your callers already know.
 
 ### Headless OAuth: client credentials (machine-to-machine)
 

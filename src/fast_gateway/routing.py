@@ -1,19 +1,15 @@
-"""Group-scoped MCP endpoint dispatch and runtime-variable injection.
+"""Group-scoped MCP endpoint dispatch.
 
-:class:`GroupDispatch` routes ``{mcp_path}`` and ``{mcp_path}/g/{group}`` to one shared
-ASGI app, setting ``current_group`` per request for :class:`HookMiddleware` to enforce.
-:class:`RuntimeVarMiddleware` lifts configured request headers into ``${var:NAME}``
-runtime variables so upstream headers can reference per-request values at connect time.
+Full catalog (``{mcp_path}``) and per-group view (``{mcp_path}/g/{group}``) route to
+the same shared ASGI app. :class:`GroupDispatch` sets ``current_group`` per request;
+:class:`HookMiddleware` reads it to filter and enforce access.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from fast_gateway.access import current_group
-from fast_gateway.secret_refs import runtime_vars
 
 
 def split_group_path(remainder: str, transport_path: str) -> tuple[str, str]:
@@ -78,34 +74,3 @@ class GroupDispatch:
             elif message["type"] == "lifespan.shutdown":
                 await send({"type": "lifespan.shutdown.complete"})
                 return
-
-
-class RuntimeVarMiddleware:
-    """ASGI shim that lifts configured request headers into ``${var:NAME}`` runtime vars.
-
-    *header_map* maps incoming header names (case-insensitive) to variable names; each
-    present header's value is bound via :func:`runtime_vars` for the request's duration,
-    so a static upstream header like ``Bearer ${var:user_token}`` resolves to the caller's
-    value at connect time. Non-HTTP scopes pass straight through.
-    """
-
-    def __init__(self, app: ASGIApp, header_map: Mapping[str, str]) -> None:
-        self._app = app
-        self._header_map = {name.lower(): var for name, var in header_map.items()}
-
-    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] not in ("http", "websocket"):
-            await self._app(scope, receive, send)
-            return
-
-        headers = {
-            name.decode("latin-1").lower(): value.decode("latin-1")
-            for name, value in scope.get("headers", [])
-        }
-        values = {var: headers[name] for name, var in self._header_map.items() if name in headers}
-        if not values:
-            await self._app(scope, receive, send)
-            return
-
-        with runtime_vars(values):
-            await self._app(scope, receive, send)

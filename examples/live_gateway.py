@@ -158,7 +158,6 @@ async def require_admin(authorization: Annotated[str, Header()] = "") -> None:
 store = SqliteStore(os.environ.get("GATEWAY_DB", "live_gateway.db"))
 gateway = create_gateway(
     store=store,
-    list_mode="all",
     hooks=Hooks(
         pre_mcp_connect=[inject_auth],
         pre_list_tools=[hide_destructive_from_listing],
