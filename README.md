@@ -269,6 +269,15 @@ In Mode B, map headers in `gateway.json`: `"header_vars": {"X-User-Token": "user
 A `pre_mcp_connect` hook can read the bound values via `ConnectContext.variables`. An
 unbound `${var:...}` fails loudly at connect time, exactly like `${env:}`/`${file:}`.
 
+> **Discovery note.** An upstream whose `static_headers` reference `${var:NAME}` cannot be
+> introspected at startup/reload — there is no request scope then, so the variable is
+> unbound and the connection fails. Such a server contributes no tools to the catalog
+> snapshot, so under the default `list_mode="meta"` its tools are **callable** by exact
+> name (directly or via `invoke_tool`) but **not discoverable** through `search_tools` /
+> `describe_tool`. If you need those tools discoverable, give the server a process-fixed
+> credential (`${env:}`/`${file:}`) for introspection, or list it under a group/namespace
+> your callers already know.
+
 ### Headless OAuth: client credentials (machine-to-machine)
 
 For server-to-server OAuth — no browser, no human — register the upstream with the
